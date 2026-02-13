@@ -9,6 +9,9 @@ Pinchy is a modular Go toolkit for running personal/micro-group LLM agents acros
   - API keys
   - Subscription-backed providers (different auth lifecycle)
 - Ingress is protocol-agnostic (`http` and `ws` adapters).
+- Pairing trigger is control-plane only:
+  - Exposed on gateway admin Unix socket.
+  - Not exposed on public HTTP/WS ingress.
 - Channel listeners are isolated modules/processes and may run on different hosts.
 - Memory is not embedded in the gateway:
   - It runs as a subscriber for turn/event ingestion.
@@ -31,6 +34,7 @@ Pinchy is a modular Go toolkit for running personal/micro-group LLM agents acros
 ## Core architecture
 - `gateway-core`
 - `ingress adapters` (`http`, `ws`) normalize external events into a canonical envelope.
+- `admin socket adapters` expose local operator/CLI control operations (pairing, maintenance).
 - `router` selects agent/policies from YAML rules.
 - `session manager` owns durable session state and full turn history.
 - `turn executor` runs the agent turn lifecycle.
@@ -49,6 +53,10 @@ Pinchy is a modular Go toolkit for running personal/micro-group LLM agents acros
 - `cron-service` (separate process/service)
 - Scheduler that emits gateway events.
 - Remote tool host (`cron.list`, `cron.create`, `cron.remove`).
+
+- `pinchy-cli` (operator-side)
+- Uses gateway admin Unix socket for control-plane actions.
+- For `pinchy pair`, gateway initiates remote pairing handshake from the gateway process.
 
 ## Session and memory model
 - Sessions are durable and long-lived in gateway DB.

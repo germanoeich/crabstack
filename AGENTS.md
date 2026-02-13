@@ -5,7 +5,8 @@ This repository is organized for a modular Go codebase with multiple projects/pa
 
 ## Repository structure
 - `spec/`: product and protocol specifications.
-- `lib/types/`: standalone shared Go module for protocol/domain types (`module pinchy/lib/types`).
+- `integration/`: root-level end-to-end tests that exercise multiple modules together.
+- `lib/types/`: standalone shared Go module for protocol/domain types (`module pinchy.local/lib/types`).
 - `projects/`: implementation projects/modules (gateway, listeners, services, shared libs, etc).
 - `go.work`: root workspace file to wire local modules together.
 
@@ -16,9 +17,12 @@ This repository is organized for a modular Go codebase with multiple projects/pa
 - `spec/TOOL_SCHEMA.md`
 - `spec/PAIRING_STRUCTS.md`
 
+Files in docs/ are not sources-of-truth, and may lag behind. Always refer to spec/ files instead.
+
 ## Working conventions
 - Treat files under `spec/` as source of truth for behavior/contracts.
 - Keep code under `projects/` aligned with `spec/` contracts.
+- Keep root integration tests in `integration/` focused on gateway+client process behavior (real sockets, real DB).
 - When adding or renaming spec documents, update this index in the same change.
 - Tests are mandatory. Ensure the test cases match reality and cover as many edge cases as possible. A feature is not complete if its not heavily tested.
 - AGENTS.md files are present in every project and in some other subdirectories. ALWAYS read them when working on a specific project, and keep them updated to match reality. 

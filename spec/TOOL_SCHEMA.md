@@ -27,15 +27,18 @@ This protocol lets gateway call remote tools hosted by memory, cron, and other s
 Command example:
 
 ```bash
-pinchy pair tool ws://10.0.0.1:5225
+pinchy pair tool wss://10.0.0.1:5225
 ```
 
 ### Phase 0: prerequisites
+- Gateway exposes local admin Unix socket for control-plane requests.
+- CLI/operator sends pair request through admin socket (no auth on local transport).
 - Remote tool host is configured with `gateway_public_key_ed25519`.
 - Remote tool host exposes pairing WS endpoint.
+- Pairing trigger endpoints are not exposed on public HTTP/WS ingress.
 
 ### Phase 1: signed initiation
-Gateway sends over WS:
+Gateway sends over outbound WS:
 
 ```json
 {
@@ -102,7 +105,51 @@ Remote decrypts and echoes plaintext:
 }
 ```
 
-### Phase 4: completion
+### Phase 4: CSR request
+Remote sends a signed certificate signing request:
+
+```json
+{
+  "type": "pair.csr_request",
+  "version": "v1",
+  "pairing_id": "01JXYZ...",
+  "csr_pem": "-----BEGIN CERTIFICATE REQUEST-----...",
+  "sig_ed25519": "base64..."
+}
+```
+
+### Phase 5: cert issuance
+Gateway returns the issued mTLS certificate and chain:
+
+```json
+{
+  "type": "pair.csr_issued",
+  "version": "v1",
+  "pairing_id": "01JXYZ...",
+  "certificate_pem": "-----BEGIN CERTIFICATE-----...",
+  "certificate_chain_pem": ["-----BEGIN CERTIFICATE-----..."],
+  "serial_number": "abc123",
+  "mtls_cert_fingerprint": "sha256:...",
+  "not_before": "2026-02-13T16:00:00Z",
+  "not_after": "2027-02-13T16:00:00Z",
+  "sig_ed25519": "base64..."
+}
+```
+
+### Phase 6: install confirmation
+Remote installs and confirms:
+
+```json
+{
+  "type": "pair.csr_installed",
+  "version": "v1",
+  "pairing_id": "01JXYZ...",
+  "mtls_cert_fingerprint": "sha256:...",
+  "sig_ed25519": "base64..."
+}
+```
+
+### Phase 7: completion
 Gateway responds:
 
 ```json

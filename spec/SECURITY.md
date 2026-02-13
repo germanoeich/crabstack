@@ -8,6 +8,7 @@ This document defines transport security, trust bootstrapping, remote pairing, a
   - Use Unix domain sockets (including Windows AF_UNIX).
   - No transport auth.
   - No transport encryption.
+  - Gateway admin control-plane (including pairing trigger) runs only on this local transport.
 - Remote communication:
   - mTLS is required.
   - Plain HTTP/WS is not allowed for runtime traffic.
@@ -16,6 +17,9 @@ This document defines transport security, trust bootstrapping, remote pairing, a
 - Generate gateway identity keypair:
   - `ed25519` private key
   - `ed25519` public key
+- Generate or load local pairing CA material:
+  - CA private key (local only)
+  - CA certificate (used as trust anchor for issued remote certs)
 - Store gateway private key locally with strict filesystem permissions.
 - Gateway public key is operator-distributed to remote components.
 
@@ -28,17 +32,24 @@ This document defines transport security, trust bootstrapping, remote pairing, a
 Command example:
 
 ```bash
-pinchy pair tool ws://10.0.0.1:5225
+pinchy pair tool wss://10.0.0.1:5225
 ```
 
 Flow:
-1. Gateway opens pairing session and sends signed initiation payload.
-2. Remote verifies signature using configured gateway public key.
-3. Remote sends identity payload and public key material.
-4. Gateway stores remote identity metadata.
+1. Operator/CLI sends pair request to gateway admin Unix socket.
+2. Gateway opens outbound pairing session to remote endpoint and sends signed initiation payload.
+3. Remote verifies signature using configured gateway public key.
+4. Remote sends identity payload and public key material.
 5. Gateway sends encrypted challenge.
 6. Remote decrypts and echoes challenge plaintext.
-7. Gateway validates response and marks pairing complete.
+7. Remote sends signed CSR request payload (`pair.csr_request`).
+8. Gateway validates CSR and issues mTLS certificate from local pairing CA (`pair.csr_issued`).
+9. Remote installs issued cert and responds with signed install confirmation (`pair.csr_installed`) that includes issued fingerprint.
+10. Gateway validates install confirmation and marks pairing complete.
+
+Notes:
+- Pairing initiation is not exposed on public HTTP/WS ingress.
+- Gateway is always the active handshake initiator toward remote components.
 
 ## Cryptography requirements
 - Ed25519 is signature-only.
@@ -70,6 +81,7 @@ Flow:
   - `paired_at`
   - `last_seen_at`
   - `status`
+- Persist local pairing CA files under gateway key dir (durable across restarts).
 
 ## Related docs
 - `OVERVIEW.md`

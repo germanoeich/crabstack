@@ -9,6 +9,9 @@ const (
 	PairingMessageTypeIdentity          PairingMessageType = "pair.identity"
 	PairingMessageTypeChallenge         PairingMessageType = "pair.challenge"
 	PairingMessageTypeChallengeResponse PairingMessageType = "pair.challenge_response"
+	PairingMessageTypeCSRRequest        PairingMessageType = "pair.csr_request"
+	PairingMessageTypeCSRIssued         PairingMessageType = "pair.csr_issued"
+	PairingMessageTypeCSRInstalled      PairingMessageType = "pair.csr_installed"
 	PairingMessageTypeComplete          PairingMessageType = "pair.complete"
 	PairingMessageTypeError             PairingMessageType = "pair.error"
 )
@@ -68,6 +71,35 @@ type PairChallengeResponse struct {
 	SigEd25519         string             `json:"sig_ed25519"`
 }
 
+type PairCSRRequest struct {
+	Type       PairingMessageType `json:"type"`
+	Version    string             `json:"version"`
+	PairingID  string             `json:"pairing_id"`
+	CSRPEM     string             `json:"csr_pem"`
+	SigEd25519 string             `json:"sig_ed25519"`
+}
+
+type PairCSRIssued struct {
+	Type                PairingMessageType `json:"type"`
+	Version             string             `json:"version"`
+	PairingID           string             `json:"pairing_id"`
+	CertificatePEM      string             `json:"certificate_pem"`
+	CertificateChainPEM []string           `json:"certificate_chain_pem,omitempty"`
+	SerialNumber        string             `json:"serial_number"`
+	MTLSCertFingerprint string             `json:"mtls_cert_fingerprint"`
+	NotBefore           time.Time          `json:"not_before"`
+	NotAfter            time.Time          `json:"not_after"`
+	SigEd25519          string             `json:"sig_ed25519"`
+}
+
+type PairCSRInstalled struct {
+	Type                PairingMessageType `json:"type"`
+	Version             string             `json:"version"`
+	PairingID           string             `json:"pairing_id"`
+	MTLSCertFingerprint string             `json:"mtls_cert_fingerprint"`
+	SigEd25519          string             `json:"sig_ed25519"`
+}
+
 type PairComplete struct {
 	Type      PairingMessageType `json:"type"`
 	Version   string             `json:"version"`
@@ -86,6 +118,7 @@ type PairError struct {
 type PairedPeerStatus string
 
 const (
+	PairedPeerStatusPending  PairedPeerStatus = "pending"
 	PairedPeerStatusActive   PairedPeerStatus = "active"
 	PairedPeerStatusInactive PairedPeerStatus = "inactive"
 	PairedPeerStatusRevoked  PairedPeerStatus = "revoked"

@@ -287,7 +287,8 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
 ```json
 {
   "pairing_id": "string",
-  "remote_uri": "ws://10.0.0.1:5225",
+  "remote_uri": "wss://10.0.0.1:5225",
+  "initiated_via": "admin_socket",
   "remote_component_type": "tool_host|listener|subscriber|provider"
 }
 ```
@@ -310,7 +311,8 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
 ```json
 {
   "pairing_id": "string",
-  "remote_uri": "ws://10.0.0.1:5225",
+  "remote_uri": "wss://10.0.0.1:5225",
+  "initiated_via": "admin_socket",
   "error_code": "SIGNATURE_INVALID|CHALLENGE_FAILED|TIMEOUT|UNREACHABLE",
   "error_message": "string"
 }
@@ -339,6 +341,7 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
 - Consumers must dedupe with `event_id` and/or `idempotency_key`.
 - If `routing.target` is missing for internal events, gateway resolves target from session `last_active_channel`.
 - Remote events must carry peer identity metadata (`peer_id` and `mtls_cert_fingerprint`) once pairing is complete.
+- Pairing lifecycle events are control-plane initiated and should set `source.transport=unix_socket`.
 
 ## Go type hints
 - Prefer `json.RawMessage` for `payload` and decode by `event_type`.

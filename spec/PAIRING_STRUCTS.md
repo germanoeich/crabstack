@@ -14,6 +14,9 @@ const (
 	PairIdentityType          PairingMessageType = "pair.identity"
 	PairChallengeType         PairingMessageType = "pair.challenge"
 	PairChallengeResponseType PairingMessageType = "pair.challenge_response"
+	PairCSRRequestType        PairingMessageType = "pair.csr_request"
+	PairCSRIssuedType         PairingMessageType = "pair.csr_issued"
+	PairCSRInstalledType      PairingMessageType = "pair.csr_installed"
 	PairCompleteType          PairingMessageType = "pair.complete"
 	PairErrorType             PairingMessageType = "pair.error"
 )
@@ -76,6 +79,35 @@ type PairChallengeResponse struct {
 	SigEd25519         string             `json:"sig_ed25519"`
 }
 
+type PairCSRRequest struct {
+	Type       PairingMessageType `json:"type"`
+	Version    string             `json:"version"`
+	PairingID  string             `json:"pairing_id"`
+	CSRPEM     string             `json:"csr_pem"`
+	SigEd25519 string             `json:"sig_ed25519"`
+}
+
+type PairCSRIssued struct {
+	Type                PairingMessageType `json:"type"`
+	Version             string             `json:"version"`
+	PairingID           string             `json:"pairing_id"`
+	CertificatePEM      string             `json:"certificate_pem"`
+	CertificateChainPEM []string           `json:"certificate_chain_pem,omitempty"`
+	SerialNumber        string             `json:"serial_number"`
+	MTLSCertFingerprint string             `json:"mtls_cert_fingerprint"`
+	NotBefore           time.Time          `json:"not_before"`
+	NotAfter            time.Time          `json:"not_after"`
+	SigEd25519          string             `json:"sig_ed25519"`
+}
+
+type PairCSRInstalled struct {
+	Type                PairingMessageType `json:"type"`
+	Version             string             `json:"version"`
+	PairingID           string             `json:"pairing_id"`
+	MTLSCertFingerprint string             `json:"mtls_cert_fingerprint"`
+	SigEd25519          string             `json:"sig_ed25519"`
+}
+
 type PairComplete struct {
 	Type      PairingMessageType `json:"type"`
 	Version   string             `json:"version"`
@@ -105,9 +137,13 @@ type PairedPeerRecord struct {
 ```
 
 ## Validation rules (implementation notes)
+- Pairing trigger is local control-plane only (gateway admin Unix socket), not public HTTP/WS ingress.
 - `type` must match expected value per message struct.
 - `version` must be `v1`.
 - `pairing_id` must be non-empty and stable across one handshake.
-- `sig_ed25519` verification is required on `pair.init`, `pair.identity`, and `pair.challenge_response`.
+- `sig_ed25519` verification is required on `pair.init`, `pair.identity`, `pair.challenge_response`, `pair.csr_request`, and `pair.csr_installed`.
+- Gateway signs `pair.csr_issued`, and remote must verify it with configured gateway public key.
 - `pair.challenge_response.challenge_plaintext` must byte-match gateway challenge plaintext.
-- Pairing succeeds only after signature checks and challenge verification both pass.
+- `pair.csr_request.csr_pem` must parse and pass CSR signature validation.
+- `pair.csr_installed.mtls_cert_fingerprint` must equal fingerprint from `pair.csr_issued`.
+- Pairing succeeds only after signature checks, challenge verification, and CSR install confirmation pass.
