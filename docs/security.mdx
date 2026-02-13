@@ -1,0 +1,53 @@
+---
+title: Security Model for Operators
+description: Transport, trust bootstrapping, pairing trust, and authorization boundaries.
+---
+
+## Transport rules
+
+- Same host: Unix sockets only, no transport auth/encryption.
+- Gateway admin control-plane (including pairing trigger) runs only on local Unix sockets.
+- Remote host: mTLS required; plain HTTP/WS runtime traffic is disallowed.
+
+If you break this rule, remote components should fail closed.
+
+## Gateway identity bootstrap
+
+At setup, generate and persist gateway identity:
+- `ed25519` keypair for signatures.
+- Local pairing CA material (CA private key and CA certificate trust anchor for issued remote certs).
+- Keep the private key local with strict filesystem permissions.
+- Distribute the public key to remotes via operator config.
+
+## Pairing trust
+
+- Remotes must verify gateway-signed pairing initiation.
+- Remotes must verify gateway-signed cert issuance payload before installing issued certs.
+- Gateway must only connect to explicitly paired remotes.
+- Runtime calls to remote tools must be denied until pairing is complete.
+
+## Authorization boundaries
+
+- Listener: ingress write only.
+- Subscriber: event stream read only.
+- Tool host: callable methods gated by explicit policy.
+
+On remote traffic, mTLS peer identity must match a paired record.
+
+## Provider auth states
+
+Expect subscription-backed providers to move through:
+- `valid`
+- `expiring`
+- `reauth_required`
+
+Operate alerts around state changes before outages happen.
+
+## Minimum security checks
+
+1. Verify every remote endpoint is mTLS-only.
+2. Verify every remote has a paired identity record.
+3. Verify cert fingerprint and peer ID are present in remote event metadata.
+4. Verify pairing triggers are not exposed on public HTTP/WS ingress.
+5. Verify pairing CA files are durable and access-restricted under gateway key storage.
+6. Verify least-privilege policies for listeners/subscribers/tool hosts.

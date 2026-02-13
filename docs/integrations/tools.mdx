@@ -1,0 +1,73 @@
+---
+title: Remote Tool Protocol (Integrations)
+description: Endpoint contracts, schemas, retries, and error handling for non-MCP remote tools.
+---
+
+Pinchy uses a non-MCP remote tool protocol for memory, cron, and custom tool hosts.
+
+## Transport and trust
+
+- Local: Unix domain socket.
+- Remote: mTLS only.
+- Pairing trigger is control-plane only via gateway admin Unix socket (not public ingress).
+- Runtime calls to `/v1/tools/*` must be denied until pairing succeeds.
+
+## Endpoints
+
+- `GET /v1/tools`: discovery metadata.
+- `POST /v1/tools/call`: synchronous execution.
+- Optional future: `POST /v1/tools/cancel`.
+
+## Request contract (`/v1/tools/call`)
+
+Required fields:
+- `version` (`v1`)
+- `call_id`
+- `tool_name`
+- `tenant_id`
+- `args`
+- `context.agent_id`
+- `context.session_id`
+
+Optional but important:
+- `idempotency_key`
+- `timeout_ms`
+- `context.isolation_key`
+- `context.trace_id`
+- `context.request_origin`
+
+## Response contract (`/v1/tools/call`)
+
+Required fields:
+- `version` (`v1`)
+- `call_id`
+- `tool_name`
+- `status`
+- `duration_ms`
+
+`status` values:
+- `ok`
+- `error`
+- `retryable_error`
+- `timeout`
+
+## Reliability rules
+
+- Gateway enforces per-call timeout.
+- Retry only for transport errors and `retryable_error`.
+- Idempotent tools must safely accept duplicate idempotency keys.
+- Side-effecting tools should return stable operation identifiers for dedupe.
+- Pairing completion now includes CSR request, cert issuance, and install confirmation before runtime calls are allowed.
+
+## Standard error codes
+
+- `TOOL_NOT_FOUND`
+- `INVALID_ARGS`
+- `UNAUTHORIZED`
+- `FORBIDDEN`
+- `RATE_LIMITED`
+- `DEPENDENCY_UNAVAILABLE`
+- `TIMEOUT`
+- `INTERNAL`
+- `PAIRING_REQUIRED`
+- `PAIRING_FAILED`

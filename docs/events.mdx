@@ -1,0 +1,37 @@
+---
+title: Event Operations Guide
+description: Operator guidance for event flow, delivery guarantees, and troubleshooting.
+---
+
+Pinchy components exchange a canonical event envelope across ingress, gateway, and subscribers.
+
+For full envelope and payload contracts, see [Integration Event Schema](./integrations/events.mdx).
+
+## Key delivery behavior
+
+- Turn-driving events are strictly ordered per session.
+- Subscriber dispatch is eventual and at-least-once.
+- Consumers must dedupe using `event_id` and/or `idempotency_key`.
+
+## High-value event families
+
+- Channel ingress: `channel.message.*`
+- Agent lifecycle: `agent.turn.*`, `agent.response.created`
+- Tool execution: `tool.call.*`
+- Pairing lifecycle: `pairing.*` (control-plane initiated via admin socket)
+- Config lifecycle: `config.applied`, `config.reverted`
+- Scheduler/system: `cron.triggered`, `heartbeat.tick`
+
+## Routing behavior to know
+
+- Gateway routes by `tenant_id`, `agent_id`, and `session_id`.
+- `isolation_key` controls memory isolation.
+- If an internal event omits output target, gateway falls back to session `last_active_channel`.
+
+## Troubleshooting patterns
+
+- Duplicates: verify downstream dedupe keys.
+- Missing output target: inspect `last_active_channel` and route metadata.
+- Remote trust issues: verify `peer_id` and `mtls_cert_fingerprint` on remote events.
+- Pairing event mismatches: verify `initiated_via=admin_socket` and `source.transport=unix_socket`.
+- Subscriber lag: inspect outbox retries and dead-letter flow.

@@ -1,0 +1,83 @@
+---
+title: Pairing Flow (Integrations)
+description: Message-level gateway-initiated pairing protocol, validation rules, and persistence model.
+---
+
+Pinchy pairing is gateway-initiated and required before remote runtime traffic is trusted.
+
+## Control-plane trigger
+
+- Pairing starts from CLI/operator over the gateway admin Unix socket.
+- Pairing trigger endpoints are not exposed on public HTTP/WS ingress.
+- After trigger, gateway initiates outbound pairing to the remote endpoint (for example `wss://...`).
+
+## Message types
+
+- `pair.init`
+- `pair.identity`
+- `pair.challenge`
+- `pair.challenge_response`
+- `pair.csr_request`
+- `pair.csr_issued`
+- `pair.csr_installed`
+- `pair.complete`
+- `pair.error`
+
+## Handshake phases
+
+1. Operator/CLI sends pair request to gateway admin Unix socket.
+2. `pair.init`: gateway sends signed initiation payload (`pairing_id`, gateway identity, nonce, issued time).
+3. `pair.identity`: remote returns signed identity with component type/id and public key material.
+4. `pair.challenge`: gateway sends encrypted challenge blob.
+5. `pair.challenge_response`: remote returns plaintext challenge echo plus signature.
+6. `pair.csr_request`: remote sends signed CSR payload.
+7. `pair.csr_issued`: gateway validates CSR and returns signed cert issuance payload (cert, chain, serial, fingerprint, validity window).
+8. `pair.csr_installed`: remote confirms installed cert fingerprint with signature.
+9. `pair.complete`: gateway finalizes status `ok` and persists paired peer.
+
+## Validation requirements
+
+- `version` must be `v1` on every message.
+- `pairing_id` must be stable and non-empty for the session.
+- Signature verification is required on:
+  - `pair.init`
+  - `pair.identity`
+  - `pair.challenge_response`
+  - `pair.csr_request`
+  - `pair.csr_installed`
+- `pair.csr_issued` must be gateway-signed and verified by remote before cert install.
+- Challenge response plaintext must byte-match original challenge.
+- CSR PEM must parse and pass CSR signature validation.
+- Installed fingerprint in `pair.csr_installed` must match issued fingerprint from `pair.csr_issued`.
+- Any verification failure must abort pairing and emit `pairing.failed`.
+
+## Persisted peer record
+
+Store, at minimum:
+- `component_type`
+- `component_id`
+- `endpoint`
+- `public_key_ed25519`
+- `public_key_x25519`
+- `mtls_cert_fingerprint`
+- `paired_at`
+- `last_seen_at`
+- `status`
+
+## State and errors
+
+Recommended statuses:
+- `pending`
+- `paired`
+- `failed`
+- `revoked`
+
+Common failure codes:
+- `SIGNATURE_INVALID`
+- `CHALLENGE_FAILED`
+- `TIMEOUT`
+- `UNREACHABLE`
+
+## Implementation notes for Go
+
+Use typed structs equivalent to `spec/PAIRING_STRUCTS.md` and keep JSON tags stable. Reject unknown/extra fields in handshake payloads where possible to reduce downgrade/ambiguity risk. Ensure pairing lifecycle events include control-plane source metadata (`source.transport=unix_socket`, `initiated_via=admin_socket` where applicable).

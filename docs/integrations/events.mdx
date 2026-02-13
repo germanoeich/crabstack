@@ -1,0 +1,77 @@
+---
+title: Event Envelope (Integrations)
+description: Canonical event schema, payload families, and processing guarantees for service implementers.
+---
+
+All services exchange a canonical `v1` event envelope.
+
+## Required envelope fields
+
+- `version` (`v1`)
+- `event_id`
+- `trace_id`
+- `occurred_at`
+- `event_type`
+- `tenant_id`
+- `source`
+- `routing`
+- `payload`
+
+## Source metadata
+
+`source` must include:
+- `component_type`
+- `component_id`
+
+Optional source attributes include platform/channel/actor IDs, message/request IDs, peer identity, cert fingerprint, and transport mode.
+
+## Routing metadata
+
+`routing` must include:
+- `agent_id`
+- `session_id`
+
+Optional routing attributes:
+- `isolation_key`
+- `target` (platform/channel/thread/address)
+- `policy_tags`
+
+## Event types in v1
+
+- `channel.message.received`
+- `channel.message.edited`
+- `channel.message.deleted`
+- `cron.triggered`
+- `heartbeat.tick`
+- `agent.turn.started`
+- `agent.turn.completed`
+- `agent.turn.failed`
+- `agent.response.created`
+- `tool.call.requested`
+- `tool.call.completed`
+- `tool.call.failed`
+- `pairing.started`
+- `pairing.completed`
+- `pairing.failed`
+- `config.applied`
+- `config.reverted`
+
+## Pairing event payload notes
+
+- `pairing.started` and `pairing.failed` include `remote_uri` and `initiated_via`.
+- Current control-plane initiation value is `initiated_via=admin_socket`.
+- Pairing examples use secure remote URI form (`wss://...`).
+
+## Processing guarantees
+
+- Gateway enforces strict per-session ordering for turn-driving events.
+- Subscriber deliveries are at-least-once and can arrive out of order.
+- Consumers must dedupe with `event_id` and/or `idempotency_key`.
+- If `routing.target` is absent on internal events, gateway resolves to session `last_active_channel`.
+- Pairing lifecycle events are control-plane initiated and should set `source.transport=unix_socket`.
+
+## Go implementation guidance
+
+- Model envelope `payload` as `json.RawMessage` and decode by `event_type`.
+- Preserve canonical immutable JSON in persistence for `turns` and outbox records.
+- Use typed payload wrappers for high-frequency event types.

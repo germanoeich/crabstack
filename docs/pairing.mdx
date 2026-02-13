@@ -1,0 +1,57 @@
+---
+title: Pair a New Remote Tool Host
+description: Operator runbook for securely pairing new remote components with the gateway.
+---
+
+Use this when onboarding a new remote component (tool host, listener, subscriber, provider).
+
+For protocol-level message contracts, see [Integration Pairing Flow](./integrations/pairing.mdx).
+
+## Preconditions
+
+- Gateway identity keypair exists.
+- Gateway admin Unix socket is reachable from the local CLI/operator context.
+- Gateway pairing CA material exists (or is configured for first-time generation).
+- Remote component is configured with `gateway_public_key_ed25519`.
+- Remote endpoint is reachable and mTLS-ready for runtime traffic.
+- You know component type and endpoint.
+
+## Pairing command
+
+```bash
+pinchy pair tool wss://10.0.0.1:5225
+```
+
+Pairing is control-plane initiated through the gateway admin Unix socket. Gateway then opens the outbound remote session and marks pairing complete only after signature, challenge, CSR validation, and cert install confirmation pass.
+
+## What happens during pairing
+
+1. CLI/operator sends pairing request to the gateway admin Unix socket.
+2. Gateway opens outbound handshake to remote and runs signed init + identity exchange.
+3. Gateway sends encrypted challenge and validates challenge response.
+4. Remote sends `pair.csr_request` with a signed CSR.
+5. Gateway validates CSR and sends `pair.csr_issued` with issued cert + chain.
+6. Remote installs cert and confirms with `pair.csr_installed`.
+7. Gateway validates fingerprint confirmation and finalizes `pair.complete`.
+
+## What success looks like
+
+- Pairing completes without signature/challenge/CSR validation errors.
+- Gateway persists remote identity metadata (component ID, keys, cert fingerprint, status).
+- Subsequent `/v1/tools/*` traffic is accepted over mTLS.
+- You see `pairing.completed` events for the requested endpoint.
+
+## Common failures
+
+- `SIGNATURE_INVALID`: wrong gateway public key configured on remote.
+- `CHALLENGE_FAILED`: encryption/proof-of-possession mismatch.
+- CSR validation/installation mismatch: malformed CSR or installed fingerprint mismatch.
+- `TIMEOUT`: endpoint unreachable or handshake stalled.
+- `UNREACHABLE`: transport or DNS/network issue.
+
+## Operational advice
+
+- Treat pairing as explicit inventory management, not auto-discovery.
+- Keep paired records current (`last_seen_at`, status) and remove stale peers.
+- Re-pair after key or cert rotation.
+- Back up and protect pairing CA files; if CA changes, expect controlled re-pairing.

@@ -1,0 +1,36 @@
+---
+title: Security Requirements (Integrations)
+description: Implementation rules for transport trust, cryptography, and authorization checks.
+---
+
+## Transport matrix
+
+- Local same-host traffic: Unix domain sockets, no transport auth/encryption.
+- Gateway control-plane pairing trigger is local-only on the admin Unix socket.
+- Remote traffic: mTLS required. Reject plain HTTP/WS runtime traffic.
+
+## Cryptography rules
+
+- Ed25519 is signature-only.
+- Do not use Ed25519 keys for encryption.
+- For encrypted challenge/proof, use X25519-derived keying material or mTLS exporter material.
+
+## Trust bootstrapping
+
+- Gateway generates Ed25519 identity keypair during setup.
+- Gateway generates or loads local pairing CA key/cert material for remote cert issuance.
+- Remote components are provisioned with gateway public key.
+- Remote verifies signed `pair.init` before accepting identity exchange.
+- Remote verifies signed `pair.csr_issued` before installing issued cert material.
+
+## Authorization boundaries
+
+- Listener implementation must only emit ingress events.
+- Subscriber implementation must only consume event streams.
+- Tool host implementation must constrain callable methods by policy.
+
+## Runtime identity enforcement
+
+- Gateway accepts remote responses only from paired peers.
+- Remote requests must fail closed when mTLS identity does not match paired record.
+- Include peer metadata (`peer_id`, `mtls_cert_fingerprint`) in remote event contexts after pairing.

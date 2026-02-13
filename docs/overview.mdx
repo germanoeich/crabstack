@@ -1,0 +1,49 @@
+---
+title: Platform Overview
+description: How Pinchy components fit together and what operators need to run first.
+---
+
+## What Pinchy is
+
+Pinchy is a multi-tenant, file-configured agent runtime with durable sessions and pluggable services.
+
+Core behavior:
+- Gateway is the orchestration core.
+- Listeners, memory, cron, and tool hosts can run as separate processes or on separate hosts.
+- Gateway stores full turn history and long-lived sessions.
+- Memory is external by default and can also expose callable tools.
+- Pairing trigger is control-plane only and runs through the gateway admin Unix socket.
+
+## Core components
+
+- `gateway-core`: routing, sessions, turn execution, outbox/event dispatch.
+- `ingress adapters` (`http`, `ws`): normalize inbound messages into the canonical event envelope.
+- `admin socket adapters`: local control-plane operations (pairing and maintenance).
+- `channel listeners`: platform adapters for Discord/WhatsApp/etc.
+- `memory service`: subscriber ingest plus optional tool host.
+- `cron service`: emits scheduled events and exposes `cron.*` tools.
+- `pinchy-cli`: operator-side control-plane client through the admin socket.
+
+## Operational model
+
+- Strict ordering is enforced per session for turn-driving work.
+- Subscriber delivery is eventual and at-least-once.
+- Full history is stored, not summaries only.
+- Config is YAML-driven and applied through validated tool flows with revision history.
+
+## Multi-tenant guidance
+
+Identity mapping is operator-defined. A practical runtime key is:
+- `tenant_id + agent_id + platform + channel_id + actor_id`
+
+Memory scoping is explicit:
+- Use `isolation_key` when isolation is required.
+- If omitted, scope falls back to global.
+
+## Rollout order (recommended)
+
+1. Stand up shared contracts and gateway persistence.
+2. Enable HTTP ingress and basic routing.
+3. Add model providers.
+4. Pair and attach tool hosts (memory, cron).
+5. Expand to additional listeners and WS ingress.
