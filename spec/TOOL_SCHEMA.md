@@ -27,7 +27,7 @@ This protocol lets gateway call remote tools hosted by memory, cron, and other s
 Command example:
 
 ```bash
-pinchy pair tool wss://10.0.0.1:5225
+crab pair tool wss://10.0.0.1:5225
 ```
 
 ### Phase 0: prerequisites
@@ -189,7 +189,7 @@ Gateway marks peer as paired and allows mTLS traffic.
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "pinchy/tool-call-request-v1",
+  "$id": "crabstack/tool-call-request-v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -276,7 +276,7 @@ Gateway marks peer as paired and allows mTLS traffic.
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "pinchy/tool-call-response-v1",
+  "$id": "crabstack/tool-call-response-v1",
   "type": "object",
   "additionalProperties": false,
   "required": [

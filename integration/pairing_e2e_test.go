@@ -43,13 +43,13 @@ func TestGatewayCLIPairing(t *testing.T) {
 	buildCtx, cancelBuild := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancelBuild()
 
-	gatewayBin := filepath.Join(binDir, "gateway")
-	if err := buildBinary(buildCtx, repoRoot, gatewayBin, "./projects/gateway/cmd/gateway"); err != nil {
-		t.Fatalf("build gateway binary: %v", err)
+	gatewayBin := filepath.Join(binDir, "crab-gateway")
+	if err := buildBinary(buildCtx, repoRoot, gatewayBin, "./projects/crab-gateway/cmd/crab-gateway"); err != nil {
+		t.Fatalf("build crab-gateway binary: %v", err)
 	}
-	cliBin := filepath.Join(binDir, "pinchy-cli")
-	if err := buildBinary(buildCtx, repoRoot, cliBin, "./projects/pinchy-cli/cmd/pinchy-cli"); err != nil {
-		t.Fatalf("build pinchy-cli binary: %v", err)
+	cliBin := filepath.Join(binDir, "crab-cli")
+	if err := buildBinary(buildCtx, repoRoot, cliBin, "./projects/crab-cli/cmd/crab-cli"); err != nil {
+		t.Fatalf("build crab-cli binary: %v", err)
 	}
 
 	httpAddr, err := reserveTCPAddr()
@@ -63,14 +63,14 @@ func TestGatewayCLIPairing(t *testing.T) {
 	gatewayCmd := exec.CommandContext(gatewayCtx, gatewayBin)
 	gatewayCmd.Dir = repoRoot
 	gatewayCmd.Env = append(os.Environ(),
-		"PINCHY_GATEWAY_HTTP_ADDR="+httpAddr,
-		"PINCHY_GATEWAY_DB_DRIVER=sqlite",
-		"PINCHY_GATEWAY_DB_DSN="+dbPath,
-		"PINCHY_GATEWAY_KEY_DIR="+keyDir,
-		"PINCHY_GATEWAY_ID=gateway-integration-test",
-		"PINCHY_GATEWAY_ADMIN_SOCKET_PATH="+adminSocket,
-		"PINCHY_GATEWAY_PAIR_TIMEOUT=20s",
-		"PINCHY_GATEWAY_ALLOW_INSECURE_LOOPBACK_PAIRING=true",
+		"CRAB_GATEWAY_HTTP_ADDR="+httpAddr,
+		"CRAB_GATEWAY_DB_DRIVER=sqlite",
+		"CRAB_GATEWAY_DB_DSN="+dbPath,
+		"CRAB_GATEWAY_KEY_DIR="+keyDir,
+		"CRAB_GATEWAY_ID=gateway-integration-test",
+		"CRAB_GATEWAY_ADMIN_SOCKET_PATH="+adminSocket,
+		"CRAB_GATEWAY_PAIR_TIMEOUT=20s",
+		"CRAB_GATEWAY_ALLOW_INSECURE_LOOPBACK_PAIRING=true",
 	)
 
 	var gatewayLogs bytes.Buffer
@@ -127,7 +127,7 @@ func TestGatewayCLIPairing(t *testing.T) {
 	cliCmd.Dir = repoRoot
 	cliOut, err := cliCmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("run pinchy-cli pair: %v\nCLI output:\n%s\nGateway logs:\n%s", err, string(cliOut), gatewayLogs.String())
+		t.Fatalf("run crab pair: %v\nCLI output:\n%s\nGateway logs:\n%s", err, string(cliOut), gatewayLogs.String())
 	}
 	cliText := string(cliOut)
 	if !strings.Contains(cliText, "pairing complete") {
@@ -158,7 +158,7 @@ func locateRepoRoot() (string, error) {
 	}
 	candidates := []string{cwd, filepath.Dir(cwd)}
 	for _, candidate := range candidates {
-		if fileExists(filepath.Join(candidate, "go.work")) && fileExists(filepath.Join(candidate, "projects", "gateway", "cmd", "gateway", "main.go")) {
+		if fileExists(filepath.Join(candidate, "go.work")) && fileExists(filepath.Join(candidate, "projects", "crab-gateway", "cmd", "crab-gateway", "main.go")) {
 			return candidate, nil
 		}
 	}

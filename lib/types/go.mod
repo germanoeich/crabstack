@@ -1,3 +1,3 @@
-module pinchy.local/lib/types
+module crabstack.local/lib/types
 
 go 1.22

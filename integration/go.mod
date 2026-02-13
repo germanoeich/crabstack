@@ -1,4 +1,4 @@
-module pinchy.local/integration
+module crabstack.local/integration
 
 go 1.22
 

@@ -1,11 +1,11 @@
 ---
 title: Platform Overview
-description: How Pinchy components fit together and what operators need to run first.
+description: How Crabstack components fit together and what operators need to run first.
 ---
 
-## What Pinchy is
+## What Crabstack is
 
-Pinchy is a multi-tenant, file-configured agent runtime with durable sessions and pluggable services.
+Crabstack is a multi-tenant, file-configured agent runtime with durable sessions and pluggable services.
 
 Core behavior:
 - Gateway is the orchestration core.
@@ -22,7 +22,7 @@ Core behavior:
 - `channel listeners`: platform adapters for Discord/WhatsApp/etc.
 - `memory service`: subscriber ingest plus optional tool host.
 - `cron service`: emits scheduled events and exposes `cron.*` tools.
-- `pinchy-cli`: operator-side control-plane client through the admin socket.
+- `crab-cli`: operator-side control-plane client through the admin socket.
 
 ## Operational model
 

@@ -1,7 +1,7 @@
 # Security and Pairing Model
 
 ## Scope
-This document defines transport security, trust bootstrapping, remote pairing, and authorization boundaries for Pinchy components.
+This document defines transport security, trust bootstrapping, remote pairing, and authorization boundaries for Crabstack components.
 
 ## Transport trust model
 - In-host communication:
@@ -32,7 +32,7 @@ This document defines transport security, trust bootstrapping, remote pairing, a
 Command example:
 
 ```bash
-pinchy pair tool wss://10.0.0.1:5225
+crab pair tool wss://10.0.0.1:5225
 ```
 
 Flow:

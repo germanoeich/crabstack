@@ -7,8 +7,8 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "pinchy/event-envelope-v1",
-  "title": "Pinchy Event Envelope v1",
+  "$id": "crabstack/event-envelope-v1",
+  "title": "Crabstack Event Envelope v1",
   "type": "object",
   "additionalProperties": false,
   "required": [

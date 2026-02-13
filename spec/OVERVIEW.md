@@ -1,7 +1,7 @@
-# Pinchy LLM Agent Toolkit
+# Crabstack LLM Agent Toolkit
 
 ## Purpose
-Pinchy is a modular Go toolkit for running personal/micro-group LLM agents across channels (Discord, WhatsApp, etc) with durable sessions, pluggable subscribers, and remote tools.
+Crabstack is a modular Go toolkit for running personal/micro-group LLM agents across channels (Discord, WhatsApp, etc) with durable sessions, pluggable subscribers, and remote tools.
 
 ## Product constraints (locked)
 - Gateway is the orchestration core.
@@ -54,9 +54,9 @@ Pinchy is a modular Go toolkit for running personal/micro-group LLM agents acros
 - Scheduler that emits gateway events.
 - Remote tool host (`cron.list`, `cron.create`, `cron.remove`).
 
-- `pinchy-cli` (operator-side)
+- `crab-cli` (operator-side)
 - Uses gateway admin Unix socket for control-plane actions.
-- For `pinchy pair`, gateway initiates remote pairing handshake from the gateway process.
+- For `crab pair`, gateway initiates remote pairing handshake from the gateway process.
 
 ## Session and memory model
 - Sessions are durable and long-lived in gateway DB.
