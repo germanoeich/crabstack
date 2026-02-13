@@ -1,6 +1,8 @@
 go 1.22
 
 use (
+	./integration
 	./lib/types
 	./projects/gateway
+	./projects/pinchy-cli
 )
