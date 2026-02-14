@@ -7,6 +7,7 @@ func TestFromEnvDefaults(t *testing.T) {
 	t.Setenv("CRAB_GATEWAY_HTTP_URL", "")
 	t.Setenv("CRAB_DISCORD_TENANT_ID", "")
 	t.Setenv("CRAB_DISCORD_AGENT_ID", "")
+	t.Setenv("CRAB_DISCORD_CONSUMER_ADDR", "")
 
 	cfg := FromEnv()
 	if cfg.DiscordBotToken != "" {
@@ -21,6 +22,9 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.AgentID != defaultAgentID {
 		t.Fatalf("expected default agent id %q, got %q", defaultAgentID, cfg.AgentID)
 	}
+	if cfg.ConsumerAddr != defaultConsumerAddr {
+		t.Fatalf("expected default consumer addr %q, got %q", defaultConsumerAddr, cfg.ConsumerAddr)
+	}
 }
 
 func TestFromEnvOverrides(t *testing.T) {
@@ -28,6 +32,7 @@ func TestFromEnvOverrides(t *testing.T) {
 	t.Setenv("CRAB_GATEWAY_HTTP_URL", " http://gateway.internal:8081 ")
 	t.Setenv("CRAB_DISCORD_TENANT_ID", " tenant-x ")
 	t.Setenv("CRAB_DISCORD_AGENT_ID", " helper-bot ")
+	t.Setenv("CRAB_DISCORD_CONSUMER_ADDR", " 127.0.0.1:8091 ")
 
 	cfg := FromEnv()
 	if cfg.DiscordBotToken != "token" {
@@ -42,6 +47,9 @@ func TestFromEnvOverrides(t *testing.T) {
 	if cfg.AgentID != "helper-bot" {
 		t.Fatalf("expected agent override, got %q", cfg.AgentID)
 	}
+	if cfg.ConsumerAddr != "127.0.0.1:8091" {
+		t.Fatalf("expected consumer addr override, got %q", cfg.ConsumerAddr)
+	}
 }
 
 func TestConfigValidate(t *testing.T) {
@@ -50,6 +58,7 @@ func TestConfigValidate(t *testing.T) {
 		GatewayHTTPURL:  "http://127.0.0.1:8080",
 		TenantID:        "tenant-a",
 		AgentID:         "assistant",
+		ConsumerAddr:    ":8090",
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("expected valid config, got error: %v", err)
@@ -66,5 +75,8 @@ func TestConfigValidate(t *testing.T) {
 	}
 	if err := (Config{DiscordBotToken: "token", GatewayHTTPURL: "http://127.0.0.1:8080", TenantID: "tenant-a", AgentID: ""}).Validate(); err == nil {
 		t.Fatalf("expected empty agent validation error")
+	}
+	if err := (Config{DiscordBotToken: "token", GatewayHTTPURL: "http://127.0.0.1:8080", TenantID: "tenant-a", AgentID: "assistant", ConsumerAddr: ""}).Validate(); err == nil {
+		t.Fatalf("expected empty consumer addr validation error")
 	}
 }

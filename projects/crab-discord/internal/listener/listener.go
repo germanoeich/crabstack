@@ -18,6 +18,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"crabstack.local/projects/crab-discord/internal/chanmap"
 	"crabstack.local/projects/crab-discord/internal/config"
 	"crabstack.local/projects/crab-sdk/types"
 )
@@ -33,12 +34,13 @@ type Listener struct {
 	logger     *log.Logger
 	httpClient *http.Client
 	eventsURL  string
+	registry   *chanmap.ChannelRegistry
 
 	mu      sync.Mutex
 	session *discordgo.Session
 }
 
-func NewListener(cfg config.Config, logger *log.Logger, httpClient *http.Client) *Listener {
+func NewListener(cfg config.Config, logger *log.Logger, httpClient *http.Client, registry *chanmap.ChannelRegistry) *Listener {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
@@ -51,6 +53,7 @@ func NewListener(cfg config.Config, logger *log.Logger, httpClient *http.Client)
 		logger:     logger,
 		httpClient: httpClient,
 		eventsURL:  eventsEndpoint(cfg.GatewayHTTPURL),
+		registry:   registry,
 	}
 }
 
@@ -113,6 +116,9 @@ func (l *Listener) handleMessage(_ *discordgo.Session, m *discordgo.MessageCreat
 	if err != nil {
 		l.logger.Printf("failed to build event envelope: %v", err)
 		return
+	}
+	if l.registry != nil {
+		l.registry.Register(envelope.Routing.SessionID, envelope.Source.ChannelID)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), postTimeout)

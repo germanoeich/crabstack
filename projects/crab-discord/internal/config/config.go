@@ -11,6 +11,7 @@ const (
 	defaultGatewayHTTPURL = "http://127.0.0.1:8080"
 	defaultTenantID       = "default"
 	defaultAgentID        = "assistant"
+	defaultConsumerAddr   = ":8090"
 )
 
 type Config struct {
@@ -18,6 +19,7 @@ type Config struct {
 	GatewayHTTPURL  string
 	TenantID        string
 	AgentID         string
+	ConsumerAddr    string
 }
 
 func FromEnv() Config {
@@ -36,11 +38,17 @@ func FromEnv() Config {
 		agentID = defaultAgentID
 	}
 
+	consumerAddr := strings.TrimSpace(os.Getenv("CRAB_DISCORD_CONSUMER_ADDR"))
+	if consumerAddr == "" {
+		consumerAddr = defaultConsumerAddr
+	}
+
 	return Config{
 		DiscordBotToken: strings.TrimSpace(os.Getenv("DISCORD_BOT_TOKEN")),
 		GatewayHTTPURL:  gatewayHTTPURL,
 		TenantID:        tenantID,
 		AgentID:         agentID,
+		ConsumerAddr:    consumerAddr,
 	}
 }
 
@@ -56,6 +64,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.AgentID) == "" {
 		return fmt.Errorf("CRAB_DISCORD_AGENT_ID must not be empty")
+	}
+	if strings.TrimSpace(c.ConsumerAddr) == "" {
+		return fmt.Errorf("CRAB_DISCORD_CONSUMER_ADDR must not be empty")
 	}
 	return nil
 }

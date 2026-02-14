@@ -13,6 +13,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"crabstack.local/projects/crab-discord/internal/chanmap"
 	"crabstack.local/projects/crab-discord/internal/config"
 	"crabstack.local/projects/crab-sdk/types"
 )
@@ -42,7 +43,7 @@ func TestHandleMessageBuildsEnvelope(t *testing.T) {
 		TenantID:        "tenant-a",
 		AgentID:         "assistant",
 	}
-	listener := NewListener(cfg, log.New(&bytes.Buffer{}, "", 0), server.Client())
+	listener := NewListener(cfg, log.New(&bytes.Buffer{}, "", 0), server.Client(), nil)
 
 	msg := &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID:        "msg-1",
@@ -131,7 +132,7 @@ func TestHandleMessageSkipsBotMessages(t *testing.T) {
 		TenantID:        "tenant-a",
 		AgentID:         "assistant",
 	}
-	listener := NewListener(cfg, log.New(&bytes.Buffer{}, "", 0), server.Client())
+	listener := NewListener(cfg, log.New(&bytes.Buffer{}, "", 0), server.Client(), nil)
 	msg := &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID:        "bot-msg",
 		ChannelID: "channel-1",
@@ -144,6 +145,40 @@ func TestHandleMessageSkipsBotMessages(t *testing.T) {
 	listener.handleMessage(nil, msg)
 	if called {
 		t.Fatalf("expected bot message to be skipped")
+	}
+}
+
+func TestHandleMessageRegistersSessionChannelMapping(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	registry := chanmap.NewChannelRegistry()
+	cfg := config.Config{
+		DiscordBotToken: "token",
+		GatewayHTTPURL:  server.URL,
+		TenantID:        "tenant-a",
+		AgentID:         "assistant",
+	}
+	listener := NewListener(cfg, log.New(&bytes.Buffer{}, "", 0), server.Client(), registry)
+	msg := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        "msg-1",
+		ChannelID: "channel-42",
+		Content:   "hello",
+		Timestamp: time.Date(2026, time.February, 14, 11, 11, 11, 0, time.UTC),
+		Author:    &discordgo.User{ID: "user-1", Bot: false},
+	}}
+
+	listener.handleMessage(nil, msg)
+
+	expectedSessionID := buildSessionID("tenant-a", "channel-42")
+	channelID, ok := registry.Lookup(expectedSessionID)
+	if !ok {
+		t.Fatalf("expected session mapping to be registered")
+	}
+	if channelID != "channel-42" {
+		t.Fatalf("expected channel-42, got %q", channelID)
 	}
 }
 
@@ -222,7 +257,7 @@ func TestHandleMessageGatewayPostFailureIsLogged(t *testing.T) {
 		TenantID:        "tenant-a",
 		AgentID:         "assistant",
 	}
-	listener := NewListener(cfg, log.New(&logBuf, "", 0), server.Client())
+	listener := NewListener(cfg, log.New(&logBuf, "", 0), server.Client(), nil)
 	msg := &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID:        "msg-1",
 		ChannelID: "channel-1",
