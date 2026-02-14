@@ -25,6 +25,7 @@ import (
 	authflow "crabstack.local/projects/crab-cli/internal/auth"
 	"crabstack.local/projects/crab-cli/internal/client"
 	"crabstack.local/projects/crab-cli/internal/tui"
+	sdkconfig "crabstack.local/projects/crab-sdk/config"
 	"crabstack.local/projects/crab-sdk/pairing"
 	"crabstack.local/projects/crab-sdk/types"
 )
@@ -83,17 +84,22 @@ func runDefaultCLI(args []string) error {
 }
 
 func configFromFlags(args []string) (client.Config, error) {
+	runtimeCfg, err := loadCLIConfig()
+	if err != nil {
+		return client.Config{}, err
+	}
+
 	fs := flag.NewFlagSet("crab", flag.ContinueOnError)
-	gatewayWS := fs.String("gateway-ws", envOrDefault("CRAB_CLI_GATEWAY_WS_URL", "ws://127.0.0.1:8080/v1/pair"), "gateway pairing websocket url")
-	gatewayPub := fs.String("gateway-public-key", strings.TrimSpace(os.Getenv("CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519")), "trusted gateway ed25519 public key (base64)")
-	tenantID := fs.String("tenant-id", "local", "tenant id")
-	agentID := fs.String("agent-id", envOrDefault("CRAB_CLI_AGENT_ID", "assistant"), "agent id")
+	gatewayWS := fs.String("gateway-ws", runtimeCfg.GatewayWSURL, "gateway pairing websocket url")
+	gatewayPub := fs.String("gateway-public-key", runtimeCfg.GatewayPublicKeyEd25519, "trusted gateway ed25519 public key (base64)")
+	tenantID := fs.String("tenant-id", sdkconfig.DefaultCLITenantID, "tenant id")
+	agentID := fs.String("agent-id", runtimeCfg.AgentID, "agent id")
 	sessionID := fs.String("session-id", fmt.Sprintf("cli-%d", time.Now().UTC().Unix()), "session id")
-	componentID := fs.String("component-id", hostnameOrDefault("crab-cli"), "component id")
-	componentType := fs.String("component-type", envOrDefault("CRAB_CLI_COMPONENT_TYPE", string(types.ComponentTypeOperator)), "component type")
-	platform := fs.String("platform", "cli", "source platform for outbound events")
-	channelID := fs.String("channel-id", "terminal", "source channel_id for outbound events")
-	actorID := fs.String("actor-id", "operator", "source actor_id for outbound events")
+	componentID := fs.String("component-id", sdkconfig.HostnameOrDefault(sdkconfig.DefaultCLIComponentID), "component id")
+	componentType := fs.String("component-type", runtimeCfg.ComponentType, "component type")
+	platform := fs.String("platform", sdkconfig.DefaultCLIPlatform, "source platform for outbound events")
+	channelID := fs.String("channel-id", sdkconfig.DefaultCLIChannelID, "source channel_id for outbound events")
+	actorID := fs.String("actor-id", sdkconfig.DefaultCLIActorID, "source actor_id for outbound events")
 	if err := fs.Parse(args); err != nil {
 		return client.Config{}, err
 	}
@@ -118,9 +124,14 @@ func runPairCommand(args []string) error {
 }
 
 func runPairTargetCommand(subcommand string, componentType types.ComponentType, args []string) error {
+	runtimeCfg, err := loadCLIConfig()
+	if err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("crab pair "+subcommand, flag.ContinueOnError)
-	adminSocket := fs.String("admin-socket", envOrDefault("CRAB_GATEWAY_ADMIN_SOCKET_PATH", ".crabstack/run/gateway-admin.sock"), "gateway admin unix socket path")
-	timeout := fs.Duration("timeout", 20*time.Second, "pairing timeout")
+	adminSocket := fs.String("admin-socket", runtimeCfg.GatewayAdminSocketPath, "gateway admin unix socket path")
+	timeout := fs.Duration("timeout", runtimeCfg.PairTimeout, "pairing timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -165,13 +176,18 @@ func runPairTargetCommand(subcommand string, componentType types.ComponentType, 
 }
 
 func runPairTestCommand(args []string) error {
+	runtimeCfg, err := loadCLIConfig()
+	if err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("crab pair test", flag.ContinueOnError)
-	adminSocket := fs.String("admin-socket", envOrDefault("CRAB_GATEWAY_ADMIN_SOCKET_PATH", ".crabstack/run/gateway-admin.sock"), "gateway admin unix socket path")
-	gatewayPub := fs.String("gateway-public-key", strings.TrimSpace(os.Getenv("CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519")), "trusted gateway ed25519 public key (base64)")
-	componentID := fs.String("component-id", hostnameOrDefault("crab-cli-test"), "component id")
-	listenAddr := fs.String("listen-addr", envOrDefault("CRAB_CLI_PAIR_LISTEN_ADDR", "127.0.0.1:0"), "local listen address for temporary pair endpoint")
-	listenPath := fs.String("listen-path", envOrDefault("CRAB_CLI_PAIR_LISTEN_PATH", "/v1/pair"), "local listen path for temporary pair endpoint")
-	timeout := fs.Duration("timeout", 20*time.Second, "pairing timeout")
+	adminSocket := fs.String("admin-socket", runtimeCfg.GatewayAdminSocketPath, "gateway admin unix socket path")
+	gatewayPub := fs.String("gateway-public-key", runtimeCfg.GatewayPublicKeyEd25519, "trusted gateway ed25519 public key (base64)")
+	componentID := fs.String("component-id", sdkconfig.HostnameOrDefault(sdkconfig.DefaultCLIPairTestComponentID), "component id")
+	listenAddr := fs.String("listen-addr", runtimeCfg.PairListenAddr, "local listen address for temporary pair endpoint")
+	listenPath := fs.String("listen-path", runtimeCfg.PairListenPath, "local listen path for temporary pair endpoint")
+	timeout := fs.Duration("timeout", runtimeCfg.PairTestTimeout, "pairing timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -213,10 +229,15 @@ func runAuthCommand(args []string) error {
 }
 
 func runAuthCodexCommand(args []string) error {
+	runtimeCfg, err := loadCLIConfig()
+	if err != nil {
+		return err
+	}
+
 	defaultCfg := codexDefaultConfig()
 	fs := flag.NewFlagSet("crab auth codex", flag.ContinueOnError)
 	authFile := fs.String("auth-file", codexDefaultCredentialsPath(), "output path for codex oauth credentials json")
-	timeout := fs.Duration("timeout", 60*time.Second, "oauth callback wait timeout")
+	timeout := fs.Duration("timeout", runtimeCfg.AuthFlow.CodexTimeout, "oauth callback wait timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -246,10 +267,15 @@ func runAuthCodexCommand(args []string) error {
 }
 
 func runAuthAnthropicCommand(args []string) error {
+	runtimeCfg, err := loadCLIConfig()
+	if err != nil {
+		return err
+	}
+
 	defaultCfg := anthropicDefaultConfig()
 	fs := flag.NewFlagSet("crab auth anthropic", flag.ContinueOnError)
 	authFile := fs.String("auth-file", anthropicDefaultCredentialsPath(), "output path for anthropic oauth credentials json")
-	timeout := fs.Duration("timeout", defaultCfg.Timeout, "oauth callback wait timeout")
+	timeout := fs.Duration("timeout", runtimeCfg.AuthFlow.AnthropicTimeout, "oauth callback wait timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -279,11 +305,16 @@ func runAuthAnthropicCommand(args []string) error {
 }
 
 func runAuthClaudeCommand(args []string) error {
+	runtimeCfg, err := loadCLIConfig()
+	if err != nil {
+		return err
+	}
+
 	defaultCfg := claudeDefaultConfig()
 	fs := flag.NewFlagSet("crab auth claude", flag.ContinueOnError)
 	authFile := fs.String("auth-file", claudeDefaultCredentialsPath(), "output path for claude oauth credentials json")
-	mode := fs.String("mode", string(defaultCfg.Mode), "auth mode label: max or console")
-	timeout := fs.Duration("timeout", defaultCfg.Timeout, "setup-token input timeout")
+	mode := fs.String("mode", runtimeCfg.AuthFlow.ClaudeMode, "auth mode label: max or console")
+	timeout := fs.Duration("timeout", runtimeCfg.AuthFlow.ClaudeTimeout, "setup-token input timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -318,14 +349,19 @@ func runEventCommand(args []string) error {
 }
 
 func runEventSendCommand(args []string) error {
+	runtimeCfg, err := loadCLIConfig()
+	if err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("crab event send", flag.ContinueOnError)
-	gatewayHTTP := fs.String("gateway-http", envOrDefault("CRAB_CLI_GATEWAY_HTTP_URL", "http://127.0.0.1:8080"), "gateway HTTP base URL")
-	tenantID := fs.String("tenant-id", "local", "tenant id")
-	agentID := fs.String("agent-id", "assistant", "agent id")
-	componentID := fs.String("component-id", hostnameOrDefault("crab-cli"), "component id")
-	channelID := fs.String("channel-id", "cli", "channel id")
-	actorID := fs.String("actor-id", "operator", "actor id")
-	timeout := fs.Duration("timeout", 10*time.Second, "request timeout")
+	gatewayHTTP := fs.String("gateway-http", runtimeCfg.GatewayHTTPURL, "gateway HTTP base URL")
+	tenantID := fs.String("tenant-id", sdkconfig.DefaultCLITenantID, "tenant id")
+	agentID := fs.String("agent-id", runtimeCfg.AgentID, "agent id")
+	componentID := fs.String("component-id", sdkconfig.HostnameOrDefault(sdkconfig.DefaultCLIComponentID), "component id")
+	channelID := fs.String("channel-id", sdkconfig.DefaultCLIEventSendChannelID, "channel id")
+	actorID := fs.String("actor-id", sdkconfig.DefaultCLIActorID, "actor id")
+	timeout := fs.Duration("timeout", runtimeCfg.EventSendTimeout, "request timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -453,12 +489,20 @@ func resolveGatewayPublicKey(flagValue string) (string, error) {
 		return key, nil
 	}
 
-	keyDir := envOrDefault("CRAB_GATEWAY_KEY_DIR", ".crabstack/keys")
+	runtimeCfg, err := loadCLIConfig()
+	if err != nil {
+		return "", err
+	}
+
+	keyDir := strings.TrimSpace(runtimeCfg.GatewayKeyDir)
+	if keyDir == "" {
+		keyDir = sdkconfig.DefaultGatewayKeyDir
+	}
 	identityPath := filepath.Join(keyDir, "gateway_identity.json")
 	data, err := os.ReadFile(identityPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("gateway public key is required (set -gateway-public-key or CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519); identity file not found at %s", identityPath)
+			return "", fmt.Errorf("gateway public key is required (set -gateway-public-key or %s); identity file not found at %s", sdkconfig.EnvCLIGatewayPublicKeyEd25519, identityPath)
 		}
 		return "", fmt.Errorf("read gateway identity file: %w", err)
 	}
@@ -486,24 +530,12 @@ func resolveGatewayPublicKey(flagValue string) (string, error) {
 	return base64.StdEncoding.EncodeToString(publicKey), nil
 }
 
-func envOrDefault(key, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	return value
-}
-
-func hostnameOrDefault(fallback string) string {
-	hostname, err := os.Hostname()
+func loadCLIConfig() (sdkconfig.CLIConfig, error) {
+	cfg, err := sdkconfig.CLIFromYAMLAndEnv()
 	if err != nil {
-		return fallback
+		return sdkconfig.CLIConfig{}, fmt.Errorf("load cli config: %w", err)
 	}
-	hostname = strings.TrimSpace(hostname)
-	if hostname == "" {
-		return fallback
-	}
-	return hostname
+	return cfg, nil
 }
 
 func newHexID() string {

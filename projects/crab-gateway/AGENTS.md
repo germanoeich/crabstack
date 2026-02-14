@@ -38,7 +38,7 @@ This project implements the Crabstack gateway runtime:
 
 ## Package map
 - `cmd/crab-gateway`: process bootstrap and wiring.
-- `internal/config`: env config parsing/validation.
+- `crab-sdk/config`: shared env config parsing/defaults/validation consumed by gateway bootstrap.
 - `internal/db`: shared DB open helpers for sqlite/postgres.
 - `internal/httpapi`: HTTP handlers and envelope validation.
 - `internal/session`: session scheduling + session/turn storage (Store interface + memory/gorm implementations).

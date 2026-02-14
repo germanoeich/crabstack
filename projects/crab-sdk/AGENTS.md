@@ -4,12 +4,14 @@
 This project provides reusable Crabstack SDK code shared by multiple components:
 - Pairing handshake flow
 - Pairing protocol signing/verification/crypto helpers
+- Shared configuration primitives (env keys/defaults/validation)
 
 ## Module
 - Go module: `crabstack.local/projects/crab-sdk`
 - Shared types package: `crabstack.local/projects/crab-sdk/types`
 
 ## Package map
+- `config`: shared runtime config types/parsers/defaults + YAML loading for gateway + CLI consumers.
 - `pairing`: gateway-triggered pairing flow, local handshake endpoint, CSR exchange flow.
 - `protocol`: pairing protocol wire structs and cryptographic helpers (PKCE/sign/verify/challenge encrypt/decrypt).
 

@@ -9,11 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
-	"crabstack.local/projects/crab-gateway/internal/config"
 	"crabstack.local/projects/crab-gateway/internal/dispatch"
 	"crabstack.local/projects/crab-gateway/internal/gateway"
 	"crabstack.local/projects/crab-gateway/internal/httpapi"
@@ -22,11 +20,15 @@ import (
 	"crabstack.local/projects/crab-gateway/internal/session"
 	"crabstack.local/projects/crab-gateway/internal/subscribers"
 	logging "crabstack.local/projects/crab-gateway/internal/subscribers/logging"
+	sdkconfig "crabstack.local/projects/crab-sdk/config"
 )
 
 func main() {
 	logger := log.New(os.Stdout, "gateway ", log.Ldate|log.Ltime|log.Lmicroseconds|log.LUTC)
-	cfg := config.FromEnv()
+	cfg, err := sdkconfig.GatewayFromYAMLAndEnv()
+	if err != nil {
+		logger.Fatalf("load config: %v", err)
+	}
 	if err := cfg.Validate(); err != nil {
 		logger.Fatalf("invalid config: %v", err)
 	}
@@ -44,11 +46,11 @@ func main() {
 	}()
 
 	modelRegistry := model.NewRegistry()
-	if apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); apiKey != "" {
-		modelRegistry.Register("anthropic", model.NewAnthropicProvider(apiKey))
+	if cfg.AnthropicAPIKey != "" {
+		modelRegistry.Register("anthropic", model.NewAnthropicProvider(cfg.AnthropicAPIKey))
 	}
-	if apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); apiKey != "" {
-		modelRegistry.Register("openai", model.NewOpenAIProvider(apiKey))
+	if cfg.OpenAIAPIKey != "" {
+		modelRegistry.Register("openai", model.NewOpenAIProvider(cfg.OpenAIAPIKey))
 	}
 
 	identity, err := pairing.LoadOrCreateIdentity(cfg.KeyDir, cfg.GatewayID)

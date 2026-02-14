@@ -15,6 +15,7 @@ This project implements a terminal operator client for Crabstack:
 
 ## Implementation notes
 - Follow contracts from `spec/` and types from `crab-sdk/types`.
+- CLI env keys/defaults and shared config helpers live in `crab-sdk/config`.
 - Pairing messages must remain compatible with v1 structs.
 - Pairing signatures must use canonical payloads that exclude `sig_ed25519`.
 - `pair.init` signature payload must match gateway canonical shape (`gateway_id`, `public_key_ed25519`, `nonce`, `issued_at`) and must not include transport-only fields.

@@ -1,6 +1,7 @@
 # Crabstack configuration template
 # Documents currently supported runtime keys and defaults.
-# Note: binaries do not auto-load this YAML yet.
+# Binaries auto-load `config.yaml` / `config.yml` from the working directory.
+# Set `CRAB_CONFIG_FILE` to load a config file from a custom path.
 
 version: 1
 

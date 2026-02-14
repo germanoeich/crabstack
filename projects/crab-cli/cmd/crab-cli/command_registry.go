@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	sdkconfig "crabstack.local/projects/crab-sdk/config"
 	"crabstack.local/projects/crab-sdk/types"
 )
 
@@ -46,8 +47,8 @@ func buildCommandCatalog() *commandSpec {
 		Summary: "Pair a tool host by endpoint + name",
 		Usage:   "crab pair tool [--admin-socket <path>] [--timeout <duration>] <endpoint> <name>",
 		Flags: []commandFlag{
-			{Name: "admin-socket", Description: "Gateway admin unix socket path", DefaultValue: ".crabstack/run/gateway-admin.sock", EnvVar: "CRAB_GATEWAY_ADMIN_SOCKET_PATH"},
-			{Name: "timeout", Description: "Pairing timeout", DefaultValue: "20s"},
+			{Name: "admin-socket", Description: "Gateway admin unix socket path", DefaultValue: sdkconfig.DefaultGatewayAdminSocketPath, EnvVar: sdkconfig.EnvGatewayAdminSocketPath},
+			{Name: "timeout", Description: "Pairing timeout", DefaultValue: sdkconfig.DefaultCLIPairTimeout.String()},
 		},
 		Args: []commandArg{
 			{Name: "endpoint", Description: "Remote pair endpoint URL", Required: true},
@@ -61,8 +62,8 @@ func buildCommandCatalog() *commandSpec {
 		Summary: "Pair a subscriber by endpoint + name",
 		Usage:   "crab pair subscriber [--admin-socket <path>] [--timeout <duration>] <endpoint> <name>",
 		Flags: []commandFlag{
-			{Name: "admin-socket", Description: "Gateway admin unix socket path", DefaultValue: ".crabstack/run/gateway-admin.sock", EnvVar: "CRAB_GATEWAY_ADMIN_SOCKET_PATH"},
-			{Name: "timeout", Description: "Pairing timeout", DefaultValue: "20s"},
+			{Name: "admin-socket", Description: "Gateway admin unix socket path", DefaultValue: sdkconfig.DefaultGatewayAdminSocketPath, EnvVar: sdkconfig.EnvGatewayAdminSocketPath},
+			{Name: "timeout", Description: "Pairing timeout", DefaultValue: sdkconfig.DefaultCLIPairTimeout.String()},
 		},
 		Args: []commandArg{
 			{Name: "endpoint", Description: "Remote pair endpoint URL", Required: true},
@@ -78,8 +79,8 @@ func buildCommandCatalog() *commandSpec {
 		Summary: "Pair an operator CLI endpoint by endpoint + name",
 		Usage:   "crab pair cli [--admin-socket <path>] [--timeout <duration>] <endpoint> <name>",
 		Flags: []commandFlag{
-			{Name: "admin-socket", Description: "Gateway admin unix socket path", DefaultValue: ".crabstack/run/gateway-admin.sock", EnvVar: "CRAB_GATEWAY_ADMIN_SOCKET_PATH"},
-			{Name: "timeout", Description: "Pairing timeout", DefaultValue: "20s"},
+			{Name: "admin-socket", Description: "Gateway admin unix socket path", DefaultValue: sdkconfig.DefaultGatewayAdminSocketPath, EnvVar: sdkconfig.EnvGatewayAdminSocketPath},
+			{Name: "timeout", Description: "Pairing timeout", DefaultValue: sdkconfig.DefaultCLIPairTimeout.String()},
 		},
 		Args: []commandArg{
 			{Name: "endpoint", Description: "Remote pair endpoint URL", Required: true},
@@ -93,12 +94,12 @@ func buildCommandCatalog() *commandSpec {
 		Summary: "Run full pairing handshake test flow",
 		Usage:   "crab pair test [--admin-socket <path>] [--gateway-public-key <base64>] [--component-id <id>] [--listen-addr <addr>] [--listen-path <path>] [--timeout <duration>]",
 		Flags: []commandFlag{
-			{Name: "admin-socket", Description: "Gateway admin unix socket path", DefaultValue: ".crabstack/run/gateway-admin.sock", EnvVar: "CRAB_GATEWAY_ADMIN_SOCKET_PATH"},
-			{Name: "gateway-public-key", Description: "Trusted gateway ed25519 public key (base64)", EnvVar: "CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519"},
-			{Name: "component-id", Description: "Component ID", DefaultValue: "<hostname|crab-cli-test>"},
-			{Name: "listen-addr", Description: "Local temporary pair listener address", DefaultValue: "127.0.0.1:0", EnvVar: "CRAB_CLI_PAIR_LISTEN_ADDR"},
-			{Name: "listen-path", Description: "Local temporary pair listener path", DefaultValue: "/v1/pair", EnvVar: "CRAB_CLI_PAIR_LISTEN_PATH"},
-			{Name: "timeout", Description: "Pairing timeout", DefaultValue: "20s"},
+			{Name: "admin-socket", Description: "Gateway admin unix socket path", DefaultValue: sdkconfig.DefaultGatewayAdminSocketPath, EnvVar: sdkconfig.EnvGatewayAdminSocketPath},
+			{Name: "gateway-public-key", Description: "Trusted gateway ed25519 public key (base64)", EnvVar: sdkconfig.EnvCLIGatewayPublicKeyEd25519},
+			{Name: "component-id", Description: "Component ID", DefaultValue: "<hostname|" + sdkconfig.DefaultCLIPairTestComponentID + ">"},
+			{Name: "listen-addr", Description: "Local temporary pair listener address", DefaultValue: sdkconfig.DefaultCLIPairListenAddress, EnvVar: sdkconfig.EnvCLIPairListenAddr},
+			{Name: "listen-path", Description: "Local temporary pair listener path", DefaultValue: sdkconfig.DefaultCLIPairListenPath, EnvVar: sdkconfig.EnvCLIPairListenPath},
+			{Name: "timeout", Description: "Pairing timeout", DefaultValue: sdkconfig.DefaultCLIPairTimeout.String()},
 		},
 		Run: runPairTestCommand,
 	}
@@ -116,7 +117,7 @@ func buildCommandCatalog() *commandSpec {
 		Usage:   "crab auth codex [--auth-file <path>] [--timeout <duration>]",
 		Flags: []commandFlag{
 			{Name: "auth-file", Description: "Output path for Codex credentials JSON", DefaultValue: "~/.crabstack/auth/codex.json"},
-			{Name: "timeout", Description: "OAuth callback wait timeout", DefaultValue: "60s"},
+			{Name: "timeout", Description: "OAuth callback wait timeout", DefaultValue: sdkconfig.DefaultCLICodexAuthTimeout.String()},
 		},
 		Run: runAuthCodexCommand,
 	}
@@ -128,7 +129,7 @@ func buildCommandCatalog() *commandSpec {
 		Flags: []commandFlag{
 			{Name: "auth-file", Description: "Output path for Claude credentials JSON", DefaultValue: "~/.crabstack/auth/claude.json"},
 			{Name: "mode", Description: "Auth mode label", DefaultValue: "max"},
-			{Name: "timeout", Description: "Setup-token input timeout", DefaultValue: "60s"},
+			{Name: "timeout", Description: "Setup-token input timeout", DefaultValue: sdkconfig.DefaultCLIClaudeAuthTimeout.String()},
 		},
 		Run: runAuthClaudeCommand,
 	}
@@ -139,7 +140,7 @@ func buildCommandCatalog() *commandSpec {
 		Usage:   "crab auth anthropic [--auth-file <path>] [--timeout <duration>]",
 		Flags: []commandFlag{
 			{Name: "auth-file", Description: "Output path for Anthropic credentials JSON", DefaultValue: "~/.crabstack/auth/anthropic.json"},
-			{Name: "timeout", Description: "OAuth callback wait timeout", DefaultValue: "60s"},
+			{Name: "timeout", Description: "OAuth callback wait timeout", DefaultValue: sdkconfig.DefaultCLIAnthropicAuthTimeout.String()},
 		},
 		Run: runAuthAnthropicCommand,
 	}
@@ -156,13 +157,13 @@ func buildCommandCatalog() *commandSpec {
 		Summary: "Send one channel.message.received envelope",
 		Usage:   "crab event send [flags] <text>",
 		Flags: []commandFlag{
-			{Name: "gateway-http", Description: "Gateway HTTP base URL", DefaultValue: "http://127.0.0.1:8080", EnvVar: "CRAB_CLI_GATEWAY_HTTP_URL"},
-			{Name: "tenant-id", Description: "Tenant ID", DefaultValue: "local"},
-			{Name: "agent-id", Description: "Agent ID", DefaultValue: "assistant"},
-			{Name: "component-id", Description: "Component ID", DefaultValue: "<hostname|crab-cli>"},
-			{Name: "channel-id", Description: "Channel ID", DefaultValue: "cli"},
-			{Name: "actor-id", Description: "Actor ID", DefaultValue: "operator"},
-			{Name: "timeout", Description: "Request timeout", DefaultValue: "10s"},
+			{Name: "gateway-http", Description: "Gateway HTTP base URL", DefaultValue: sdkconfig.DefaultCLIGatewayHTTPURL, EnvVar: sdkconfig.EnvCLIGatewayHTTPURL},
+			{Name: "tenant-id", Description: "Tenant ID", DefaultValue: sdkconfig.DefaultCLITenantID},
+			{Name: "agent-id", Description: "Agent ID", DefaultValue: sdkconfig.DefaultCLIAgentID},
+			{Name: "component-id", Description: "Component ID", DefaultValue: "<hostname|" + sdkconfig.DefaultCLIComponentID + ">"},
+			{Name: "channel-id", Description: "Channel ID", DefaultValue: sdkconfig.DefaultCLIEventSendChannelID},
+			{Name: "actor-id", Description: "Actor ID", DefaultValue: sdkconfig.DefaultCLIActorID},
+			{Name: "timeout", Description: "Request timeout", DefaultValue: sdkconfig.DefaultCLIEventSendTimeout.String()},
 		},
 		Args: []commandArg{
 			{Name: "text", Description: "Message text payload", Required: true},
@@ -191,16 +192,16 @@ func buildCommandCatalog() *commandSpec {
 		Summary: "Crabstack CLI",
 		Usage:   "crab [flags] | crab <command> [args]",
 		Flags: []commandFlag{
-			{Name: "gateway-ws", Description: "Gateway pairing websocket URL", DefaultValue: "ws://127.0.0.1:8080/v1/pair", EnvVar: "CRAB_CLI_GATEWAY_WS_URL"},
-			{Name: "gateway-public-key", Description: "Trusted gateway ed25519 public key (base64)", EnvVar: "CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519"},
-			{Name: "tenant-id", Description: "Tenant ID", DefaultValue: "local"},
-			{Name: "agent-id", Description: "Agent ID", DefaultValue: "assistant", EnvVar: "CRAB_CLI_AGENT_ID"},
+			{Name: "gateway-ws", Description: "Gateway pairing websocket URL", DefaultValue: sdkconfig.DefaultCLIGatewayWSURL, EnvVar: sdkconfig.EnvCLIGatewayWSURL},
+			{Name: "gateway-public-key", Description: "Trusted gateway ed25519 public key (base64)", EnvVar: sdkconfig.EnvCLIGatewayPublicKeyEd25519},
+			{Name: "tenant-id", Description: "Tenant ID", DefaultValue: sdkconfig.DefaultCLITenantID},
+			{Name: "agent-id", Description: "Agent ID", DefaultValue: sdkconfig.DefaultCLIAgentID, EnvVar: sdkconfig.EnvCLIAgentID},
 			{Name: "session-id", Description: "Session ID", DefaultValue: "cli-<unix-ts>"},
-			{Name: "component-id", Description: "Component ID", DefaultValue: "<hostname|crab-cli>"},
-			{Name: "component-type", Description: "Component type", DefaultValue: "operator", EnvVar: "CRAB_CLI_COMPONENT_TYPE"},
-			{Name: "platform", Description: "Outbound source platform", DefaultValue: "cli"},
-			{Name: "channel-id", Description: "Outbound source channel_id", DefaultValue: "terminal"},
-			{Name: "actor-id", Description: "Outbound source actor_id", DefaultValue: "operator"},
+			{Name: "component-id", Description: "Component ID", DefaultValue: "<hostname|" + sdkconfig.DefaultCLIComponentID + ">"},
+			{Name: "component-type", Description: "Component type", DefaultValue: sdkconfig.DefaultCLIComponentType, EnvVar: sdkconfig.EnvCLIComponentType},
+			{Name: "platform", Description: "Outbound source platform", DefaultValue: sdkconfig.DefaultCLIPlatform},
+			{Name: "channel-id", Description: "Outbound source channel_id", DefaultValue: sdkconfig.DefaultCLIChannelID},
+			{Name: "actor-id", Description: "Outbound source actor_id", DefaultValue: sdkconfig.DefaultCLIActorID},
 		},
 		Subcommands: []*commandSpec{pair, auth, event, help},
 		Run:         runDefaultCLI,
