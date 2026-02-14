@@ -12,16 +12,8 @@ permissions:
 
 jobs:
   test:
-    name: Test (${{ matrix.module }})
+    name: Check (fmt/vet/test)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        module:
-          - lib/types
-          - projects/crab-gateway
-          - projects/crab-cli
-          - integration
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,9 +24,8 @@ jobs:
           go-version-file: go.work
           cache: true
 
-      - name: Run tests
-        working-directory: ${{ matrix.module }}
-        run: go test ./...
+      - name: Run make check
+        run: make check
 
   build:
     name: Build (${{ matrix.module }})

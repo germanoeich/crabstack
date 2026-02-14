@@ -45,29 +45,29 @@ var (
 )
 
 func main() {
-	if len(os.Args) > 1 {
-		switch strings.ToLower(strings.TrimSpace(os.Args[1])) {
-		case "pair":
-			if err := runPairCommand(os.Args[2:]); err != nil {
-				log.Fatalf("crab pair failed: %v", err)
-			}
-			return
-		case "auth":
-			if err := runAuthCommand(os.Args[2:]); err != nil {
-				log.Fatalf("crab auth failed: %v", err)
-			}
-			return
-		case "event":
-			if err := runEventCommand(os.Args[2:]); err != nil {
-				log.Fatalf("crab event failed: %v", err)
-			}
-			return
-		}
+	if err := runCLI(os.Args[1:]); err != nil {
+		log.Fatal(err)
 	}
+}
 
-	cfg, err := configFromFlags(os.Args[1:])
+func runCLI(args []string) error {
+	resolution := resolveCommand(crabCommandCatalog, args)
+	if err := dispatchResolvedCommand(resolution); err != nil {
+		if len(resolution.path) > 0 {
+			switch resolution.path[0] {
+			case "pair", "auth", "event":
+				return fmt.Errorf("crab %s failed: %w", resolution.path[0], err)
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func runDefaultCLI(args []string) error {
+	cfg, err := configFromFlags(args)
 	if err != nil {
-		log.Fatalf("invalid config: %v", err)
+		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -75,10 +75,11 @@ func main() {
 
 	if err := tui.Run(ctx, cfg); err != nil {
 		if errors.Is(err, context.Canceled) {
-			return
+			return nil
 		}
-		log.Fatalf("crab failed: %v", err)
+		return fmt.Errorf("crab failed: %w", err)
 	}
+	return nil
 }
 
 func configFromFlags(args []string) (client.Config, error) {
@@ -113,23 +114,7 @@ func configFromFlags(args []string) (client.Config, error) {
 }
 
 func runPairCommand(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: crab pair <test|tool|subscriber|cli> ...")
-	}
-
-	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
-	switch subcommand {
-	case "test":
-		return runPairTestCommand(args[1:])
-	case "tool":
-		return runPairTargetCommand("tool", types.ComponentTypeToolHost, args[1:])
-	case "subscriber":
-		return runPairTargetCommand("subscriber", types.ComponentTypeSubscriber, args[1:])
-	case "cli":
-		return runPairTargetCommand("cli", types.ComponentTypeOperator, args[1:])
-	default:
-		return fmt.Errorf("unsupported pair subcommand %q (supported: test, tool, subscriber, cli)", subcommand)
-	}
+	return dispatchNamedSubcommand(crabCommandCatalog, "pair", args)
 }
 
 func runPairTargetCommand(subcommand string, componentType types.ComponentType, args []string) error {
@@ -224,20 +209,7 @@ func runPairTestCommand(args []string) error {
 }
 
 func runAuthCommand(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: crab auth <codex|claude|anthropic> ...")
-	}
-	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
-	switch subcommand {
-	case "codex":
-		return runAuthCodexCommand(args[1:])
-	case "claude":
-		return runAuthClaudeCommand(args[1:])
-	case "anthropic":
-		return runAuthAnthropicCommand(args[1:])
-	default:
-		return fmt.Errorf("unsupported auth subcommand %q (supported: codex, claude, anthropic)", subcommand)
-	}
+	return dispatchNamedSubcommand(crabCommandCatalog, "auth", args)
 }
 
 func runAuthCodexCommand(args []string) error {
@@ -342,16 +314,7 @@ func runAuthClaudeCommand(args []string) error {
 }
 
 func runEventCommand(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: crab event <send> ...")
-	}
-	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
-	switch subcommand {
-	case "send":
-		return runEventSendCommand(args[1:])
-	default:
-		return fmt.Errorf("unsupported event subcommand %q (supported: send)", subcommand)
-	}
+	return dispatchNamedSubcommand(crabCommandCatalog, "event", args)
 }
 
 func runEventSendCommand(args []string) error {

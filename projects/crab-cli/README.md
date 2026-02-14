@@ -16,6 +16,9 @@ Terminal UI client for Crabstack pairing + event exchange.
 - Supports subscription OAuth login:
   - `crab auth codex`
   - `crab auth anthropic`
+- Supports catalog-driven command help:
+  - `crab help`
+  - `crab help <command>`
 
 ## Pair External Component (Gateway-Initiated)
 From `projects/crab-cli`:
@@ -92,6 +95,14 @@ The `pair test` command:
   - `pair.complete`
 - Prints `pairing_id`, endpoint, and issued certificate fingerprint.
 - Uses defaults so it can run without extra args. `-gateway-public-key` is optional; if unset, CLI loads gateway public key from `<CRAB_GATEWAY_KEY_DIR>/gateway_identity.json` (default `.crabstack/keys/gateway_identity.json`).
+
+## Help
+From `projects/crab-cli`:
+
+```bash
+crab help
+crab help event send
+```
 
 ## Run
 From `projects/crab-cli`:

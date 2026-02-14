@@ -19,6 +19,10 @@ This project implements a terminal operator client for Crabstack:
 - Pairing signatures must use canonical payloads that exclude `sig_ed25519`.
 - `pair.init` signature payload must match gateway canonical shape (`gateway_id`, `public_key_ed25519`, `nonce`, `issued_at`) and must not include transport-only fields.
 - Event transport must use `types.EventEnvelope`.
+- CLI command routing must flow through the shared command catalog/parser/dispatcher:
+  - command metadata (usage/flags/args) is centralized in one registry
+  - `crab help [command ...]` output is rendered from that registry
+  - command handlers should be leaf-level and reusable (catalog entry + handler wiring)
 - `crab pair tool <endpoint> <name>`, `crab pair subscriber <endpoint> <name>`, and `crab pair cli <endpoint> <name>` are gateway-trigger-only:
   - send `POST /v1/pairings` over admin socket
   - map command to request:
