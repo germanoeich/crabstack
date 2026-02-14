@@ -12,6 +12,15 @@ Crabstack uses a non-MCP remote tool protocol for memory, cron, and custom tool 
 - Pairing trigger is control-plane only via gateway admin Unix socket (not public ingress).
 - Runtime calls to `/v1/tools/*` must be denied until pairing succeeds.
 
+Pairing command grammar used by operators:
+
+```bash
+crab pair test
+crab pair tool wss://10.0.0.1:5225 memory-east
+crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
+crab pair cli wss://10.0.0.3:7443/v1/pair gin-laptop
+```
+
 ## Endpoints
 
 - `GET /v1/tools`: discovery metadata.
@@ -36,6 +45,11 @@ Optional but important:
 - `context.trace_id`
 - `context.request_origin`
 
+Validation constraints:
+- Reject unknown top-level fields where possible (`additionalProperties=false` in spec schema).
+- `timeout_ms` range should be `1..120000` when provided.
+- `context.request_origin` should be one of `agent_turn`, `cron`, `operator`, `system`.
+
 ## Response contract (`/v1/tools/call`)
 
 Required fields:
@@ -58,6 +72,12 @@ Required fields:
 - Idempotent tools must safely accept duplicate idempotency keys.
 - Side-effecting tools should return stable operation identifiers for dedupe.
 - Pairing completion now includes CSR request, cert issuance, and install confirmation before runtime calls are allowed.
+
+## Authorization expectations
+
+- Pairing creates principal identity only.
+- Default `tool_host` behavior is subscribe `tool.call.requested` and publish `tool.call.completed|tool.call.failed`.
+- Effective permissions are role defaults + peer policy overrides + optional temporary lease scope.
 
 ## Standard error codes
 

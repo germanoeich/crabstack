@@ -50,8 +50,8 @@ func defaultCLIConfig() CLIConfig {
 		GatewayPublicKeyEd25519: "",
 		AgentID:                 DefaultCLIAgentID,
 		ComponentType:           DefaultCLIComponentType,
-		GatewayAdminSocketPath:  DefaultGatewayAdminSocketPath,
-		GatewayKeyDir:           DefaultGatewayKeyDir,
+		GatewayAdminSocketPath:  ResolveCrabstackPath(DefaultGatewayAdminSocketPath),
+		GatewayKeyDir:           ResolveCrabstackPath(DefaultGatewayKeyDir),
 		PairListenAddr:          DefaultCLIPairListenAddress,
 		PairListenPath:          DefaultCLIPairListenPath,
 		PairTimeout:             DefaultCLIPairTimeout,
@@ -83,10 +83,10 @@ func applyCLIYAML(cfg *CLIConfig, source fileCLIConfig) error {
 		cfg.ComponentType = value
 	}
 	if value := strings.TrimSpace(source.GatewayAdminSocketPath); value != "" {
-		cfg.GatewayAdminSocketPath = value
+		cfg.GatewayAdminSocketPath = ResolveCrabstackPath(value)
 	}
 	if value := strings.TrimSpace(source.GatewayKeyDir); value != "" {
-		cfg.GatewayKeyDir = value
+		cfg.GatewayKeyDir = ResolveCrabstackPath(value)
 	}
 	if value := strings.TrimSpace(source.PairListenAddr); value != "" {
 		cfg.PairListenAddr = value
@@ -144,8 +144,8 @@ func applyCLIEnv(cfg *CLIConfig) {
 	cfg.GatewayPublicKeyEd25519 = EnvOrDefault(EnvCLIGatewayPublicKeyEd25519, cfg.GatewayPublicKeyEd25519)
 	cfg.AgentID = EnvOrDefault(EnvCLIAgentID, cfg.AgentID)
 	cfg.ComponentType = EnvOrDefault(EnvCLIComponentType, cfg.ComponentType)
-	cfg.GatewayAdminSocketPath = EnvOrDefault(EnvGatewayAdminSocketPath, cfg.GatewayAdminSocketPath)
-	cfg.GatewayKeyDir = EnvOrDefault(EnvGatewayKeyDir, cfg.GatewayKeyDir)
+	cfg.GatewayAdminSocketPath = ResolveCrabstackPath(EnvOrDefault(EnvGatewayAdminSocketPath, cfg.GatewayAdminSocketPath))
+	cfg.GatewayKeyDir = ResolveCrabstackPath(EnvOrDefault(EnvGatewayKeyDir, cfg.GatewayKeyDir))
 	cfg.PairListenAddr = EnvOrDefault(EnvCLIPairListenAddr, cfg.PairListenAddr)
 	cfg.PairListenPath = EnvOrDefault(EnvCLIPairListenPath, cfg.PairListenPath)
 }

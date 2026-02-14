@@ -28,9 +28,13 @@ description: Implementation rules for transport trust, cryptography, and authori
 - Listener implementation must only emit ingress events.
 - Subscriber implementation must only consume event streams.
 - Tool host implementation must constrain callable methods by policy.
+- Paired CLI principals (`component_type=operator`) can hold `cli_admin` policy, but cannot initiate pairing remotely.
+- Authorization should evaluate as deny-by-default with explicit deny precedence.
 
 ## Runtime identity enforcement
 
 - Gateway accepts remote responses only from paired peers.
 - Remote requests must fail closed when mTLS identity does not match paired record.
 - Include peer metadata (`peer_id`, `mtls_cert_fingerprint`) in remote event contexts after pairing.
+
+See [Peer Auth and Authorization](./peer-auth.mdx) for role defaults, policy evaluation order, and temporary lease scope.

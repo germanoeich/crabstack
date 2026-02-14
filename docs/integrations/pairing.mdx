@@ -11,6 +11,17 @@ Crabstack pairing is gateway-initiated and required before remote runtime traffi
 - Pairing trigger endpoints are not exposed on public HTTP/WS ingress.
 - After trigger, gateway initiates outbound pairing to the remote endpoint (for example `wss://...`).
 - Pairing command variants include `tool`, `subscriber`, and `cli` (`cli` maps to `component_type=operator`).
+- `--admin-socket <path>` can be used on all `crab pair *` commands.
+- `crab pair test` should be supported as a local verification helper.
+
+Command examples:
+
+```bash
+crab pair test
+crab pair tool wss://10.0.0.1:5225 memory-east
+crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
+crab pair cli wss://10.0.0.3:7443/v1/pair gin-laptop
+```
 
 ## Message types
 
@@ -80,6 +91,8 @@ Common failure codes:
 - `CHALLENGE_FAILED`
 - `TIMEOUT`
 - `UNREACHABLE`
+
+Pairing should surface terminal handshake errors through `pair.error` and corresponding `pairing.failed` events.
 
 ## Implementation notes for Go
 

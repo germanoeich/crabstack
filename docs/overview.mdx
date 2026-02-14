@@ -14,6 +14,7 @@ Core behavior:
 - Memory is external by default and can also expose callable tools.
 - Pairing trigger is control-plane only and runs through the gateway admin Unix socket.
 - Peer identity is durable, while runtime producer/subscriber attachments can be temporary and session-scoped.
+- Pairing bootstraps identity only; runtime permissions are still role/policy/lease gated.
 
 ## Core components
 
@@ -31,6 +32,14 @@ Core behavior:
 - Subscriber delivery is eventual and at-least-once.
 - Full history is stored, not summaries only.
 - Config is YAML-driven and applied through validated tool flows with revision history.
+
+## Peer model at runtime
+
+- Persistent peers: durable paired identities that can reconnect without re-pairing when checks still match.
+- Temporary leases: short-lived runtime scope used for session-bound flows (for example CLI chat wiring).
+- Authorization is deny-by-default and evaluated from role + policy + optional temporary lease scope.
+
+Implementation details live in [Integration Peer Auth](./integrations/peer-auth.mdx).
 
 ## Multi-tenant guidance
 

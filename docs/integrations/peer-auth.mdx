@@ -1,0 +1,85 @@
+---
+title: Peer Auth and Authorization (Integrations)
+description: Persistent peer identity, temporary leases, and deny-by-default authorization rules.
+---
+
+This page summarizes integration behavior from the peer auth model spec.
+
+## Principal classes
+
+- Persistent peer: durable identity created by successful pairing.
+- Temporary peer lease: short-lived runtime grant scoped to tenant/agent/session.
+- Pairing creates identity only; leases and policy decide runtime scope.
+
+## Pair command mapping
+
+- `crab pair tool <endpoint> <name>` -> `component_type=tool_host`, `role=tool_host`
+- `crab pair subscriber <endpoint> <name>` -> `component_type=subscriber`, `role=subscriber`
+- `crab pair cli <endpoint> <name>` -> `component_type=operator`, `role=cli_admin`
+- `<name>` -> `component_id`
+- `crab pair test` -> local handshake verification helper
+
+## Authentication rules
+
+- Local in-host control-plane transport: Unix socket only, no transport auth/encryption.
+- Remote transport: mTLS only.
+- Gateway must resolve remote principal from paired identity + mTLS metadata.
+- Identity mismatch must fail closed.
+
+## Authorization decision model
+
+Input order:
+1. Authenticated principal.
+2. Role defaults.
+3. Peer policy overrides.
+4. Optional temporary lease.
+5. Requested action.
+
+Decision behavior:
+- Default deny.
+- Explicit deny overrides allow.
+- Temporary lease can only reduce scope, never expand beyond role + policy.
+
+## Default role profiles
+
+| Role | Component Type | Allowed Publish | Allowed Subscribe | Allowed Control |
+|---|---|---|---|---|
+| `tool_host` | `tool_host` | `tool.call.completed`, `tool.call.failed` | `tool.call.requested` | none |
+| `subscriber` | `subscriber` | none | `channel.*`, `cron.*`, `heartbeat.tick`, `agent.*` | none |
+| `listener` | `listener` | `channel.message.received`, `channel.message.edited`, `channel.message.deleted` | none | none |
+| `cli_admin` | `operator` | any | any | `config.*`, `sessions.*`, `peers.*`, `subscriptions.*` |
+
+`cli_admin` constraint: remote pairing trigger is still disallowed.
+
+## Action namespaces
+
+- `events.publish:<event_type>`
+- `events.subscribe:<event_type>`
+- `control.config:*`
+- `control.sessions:*`
+- `control.peers:*`
+- `control.subscriptions:*`
+
+## Temporary lease lifecycle
+
+- Leases should revoke on expiry, owning connection close (`disconnect_bound=true`), session close, or explicit revoke.
+- `crab chat new` style flows should use temporary producer/subscriber leases instead of broad principal expansion.
+
+## Persistence minimums
+
+Persistent principal records should include:
+- `component_type`
+- `component_id`
+- `role`
+- `endpoint`
+- key material and `mtls_cert_fingerprint`
+- `status`
+- `paired_at`
+- `last_seen_at`
+- policy data
+
+Lease records should include:
+- owner principal identifiers
+- tenant/agent/session scope
+- capability set
+- issued/expiry/revocation timestamps

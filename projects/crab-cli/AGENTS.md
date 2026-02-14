@@ -38,15 +38,15 @@ This project implements a terminal operator client for Crabstack:
 - `crab auth codex` executes subscription OAuth (PKCE + localhost callback + manual fallback):
   - defaults to OpenAI auth endpoints and fixed client id expected by Codex subscription flow
   - validates ChatGPT account claim from access token
-  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/codex.json` for gateway consumption unless overridden
+  - persists JSON credentials (includes refresh token + expiry) under `.crabstack/auth/` in the current working directory only when local `.crabstack` exists; otherwise under `~/.crabstack/auth/` unless overridden
 - `crab auth claude` uses Claude setup-token flow (instead of direct OAuth URL auth):
   - prompts to paste a setup-token
   - validates token shape (`sk-ant-oat01-...`) before persistence
-  - persists JSON credentials to `~/.crabstack/auth/claude.json` for gateway consumption unless overridden
+  - persists JSON credentials under `.crabstack/auth/` in the current working directory only when local `.crabstack` exists; otherwise under `~/.crabstack/auth/` unless overridden
 - `crab auth anthropic` executes subscription OAuth (PKCE + manual code paste):
   - defaults to Anthropic auth endpoints and fixed client id expected by Claude subscription flow
   - prompts for manual auth code (or redirect URL) after browser approval
-  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/anthropic.json` for gateway consumption unless overridden
+  - persists JSON credentials (includes refresh token + expiry) under `.crabstack/auth/` in the current working directory only when local `.crabstack` exists; otherwise under `~/.crabstack/auth/` unless overridden
 - `crab pair test` runs full handshake phases:
   - `pair.init`
   - `pair.identity`

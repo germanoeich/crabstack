@@ -28,6 +28,13 @@ For full envelope and payload contracts, see [Integration Event Schema](./integr
 - `isolation_key` controls memory isolation.
 - If an internal event omits output target, gateway falls back to session `last_active_channel`.
 
+## Pairing event fields to monitor
+
+- `pairing.started` and `pairing.failed` should include `remote_uri` and `initiated_via=admin_socket`.
+- `pairing.started` should include `remote_component_type`.
+- `pairing.completed` should include `remote_component_id`, remote keys, and `mtls_cert_fingerprint`.
+- Pairing lifecycle events should report `source.transport=unix_socket`.
+
 ## Troubleshooting patterns
 
 - Duplicates: verify downstream dedupe keys.

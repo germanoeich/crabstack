@@ -60,10 +60,10 @@ Crabstack is a modular Go toolkit for running personal/micro-group LLM agents ac
 - Supports subscription OAuth bootstrap:
   - `crab auth codex`
   - uses PKCE + localhost callback (`127.0.0.1:1455/auth/callback`) with manual paste fallback
-  - writes credentials JSON to `~/.crabstack/auth/codex.json` by default
+  - writes credentials JSON to `./.crabstack/auth/codex.json` when local `.crabstack` exists, otherwise `~/.crabstack/auth/codex.json`
   - `crab auth anthropic`
   - uses PKCE + manual code/redirect paste flow
-  - writes credentials JSON to `~/.crabstack/auth/anthropic.json` by default
+  - writes credentials JSON to `./.crabstack/auth/anthropic.json` when local `.crabstack` exists, otherwise `~/.crabstack/auth/anthropic.json`
 - Supports one-shot event ingress for local/remote CLI chat:
   - `crab event send <text>`
   - posts `channel.message.received` to gateway `POST /v1/events`
@@ -118,6 +118,14 @@ Crabstack is a modular Go toolkit for running personal/micro-group LLM agents ac
 ## Config management and safety
 - YAML is canonical config.
 - Agent applies config changes only via a dedicated tool.
+- Config file discovery priority:
+  1. `CRAB_CONFIG_FILE`
+  2. `./.crabstack/config.yaml`, then `./.crabstack/config.yml`
+  3. `~/.crabstack/config.yaml`, then `~/.crabstack/config.yml`
+- `.crabstack` default path resolution:
+  - For default write paths rooted at `.crabstack/...`, resolve to `./.crabstack/...` only when local `./.crabstack` already exists.
+  - If local `./.crabstack` does not exist, resolve to `~/.crabstack/...`.
+  - Implementations must not create `./.crabstack` implicitly when it does not already exist.
 - Apply flow:
   1. Parse + schema validation
   2. Semantic validation

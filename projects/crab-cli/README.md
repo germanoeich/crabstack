@@ -59,7 +59,7 @@ The `auth codex` command:
 - Starts a localhost callback listener (`127.0.0.1:1455` by default).
 - Falls back to manual paste when callback cannot be received.
 - Exchanges the auth code using PKCE.
-- Stores credentials JSON at `~/.crabstack/auth/codex.json` by default for gateway consumption (override with `--auth-file`).
+- Stores credentials JSON in local `.crabstack/auth/codex.json` when local `.crabstack` exists, otherwise `~/.crabstack/auth/codex.json` (override with `--auth-file`).
 
 ## Anthropic OAuth Login
 From `projects/crab-cli`:
@@ -72,7 +72,7 @@ The `auth anthropic` command:
 - Prints the Anthropic authorize URL.
 - Uses manual code/redirect paste after browser approval.
 - Exchanges the auth code using PKCE.
-- Stores credentials JSON at `~/.crabstack/auth/anthropic.json` by default for gateway consumption (override with `--auth-file`).
+- Stores credentials JSON in local `.crabstack/auth/anthropic.json` when local `.crabstack` exists, otherwise `~/.crabstack/auth/anthropic.json` (override with `--auth-file`).
 
 ## Pairing Handshake Test
 From `projects/crab-cli`:

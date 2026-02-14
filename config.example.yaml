@@ -1,7 +1,11 @@
 # Crabstack configuration template
 # Documents currently supported runtime keys and defaults.
-# Binaries auto-load `config.yaml` / `config.yml` from the working directory.
-# Set `CRAB_CONFIG_FILE` to load a config file from a custom path.
+# Lookup order:
+# 1) `CRAB_CONFIG_FILE`
+# 2) `./.crabstack/config.yaml` or `./.crabstack/config.yml`
+# 3) `~/.crabstack/config.yaml` or `~/.crabstack/config.yml`
+# For `.crabstack/...` write paths, runtime uses local `.crabstack` only when it already exists.
+# Otherwise, writes go to `~/.crabstack/...`.
 
 version: 1
 

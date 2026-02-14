@@ -1,9 +1,9 @@
 ---
-title: Pair a New Remote Tool Host
-description: Operator runbook for securely pairing new remote components with the gateway.
+title: Pair a New Remote Component
+description: Operator runbook for securely pairing tool hosts, subscribers, and remote CLI principals.
 ---
 
-Use this when onboarding a new remote component (tool host, listener, subscriber, remote CLI).
+Use this when onboarding a new remote component (tool host, subscriber, remote CLI).
 
 For protocol-level message contracts, see [Integration Pairing Flow](./integrations/pairing.mdx).
 
@@ -19,14 +19,23 @@ For protocol-level message contracts, see [Integration Pairing Flow](./integrati
 ## Pairing command
 
 ```bash
+crab pair test
 crab pair tool wss://10.0.0.1:5225 memory-east
-crab pair subscriber wss://10.0.0.2:7443 discord-outbound
-crab pair cli wss://10.0.0.3:7443 gin-laptop
+crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
+crab pair cli wss://10.0.0.3:7443/v1/pair gin-laptop
 ```
 
 Pairing is control-plane initiated through the gateway admin Unix socket. Gateway then opens the outbound remote session and marks pairing complete only after signature, challenge, CSR validation, and cert install confirmation pass.
 
 `crab pair cli` pairs a remote CLI principal for management operations (for example config/session control). Pair initiation itself still remains local admin-socket-only.
+
+Use `--admin-socket <path>` on any `crab pair *` command when the admin socket is non-default.
+
+Mapping rules:
+- `tool` maps to `component_type=tool_host`.
+- `subscriber` maps to `component_type=subscriber`.
+- `cli` maps to `component_type=operator` (`cli_admin` role profile).
+- Positional `<name>` maps to `component_id`.
 
 ## What happens during pairing
 
@@ -42,8 +51,9 @@ Pairing is control-plane initiated through the gateway admin Unix socket. Gatewa
 
 - Pairing completes without signature/challenge/CSR validation errors.
 - Gateway persists remote identity metadata (component ID, keys, cert fingerprint, status).
-- Subsequent `/v1/tools/*` traffic is accepted over mTLS.
+- Subsequent remote runtime traffic (for example `/v1/tools/*` for tool hosts) is accepted over mTLS.
 - You see `pairing.completed` events for the requested endpoint.
+- Paired peer can reconnect later without re-pairing when identity checks still match.
 
 ## Common failures
 

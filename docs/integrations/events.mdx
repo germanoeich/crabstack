@@ -17,6 +17,10 @@ All services exchange a canonical `v1` event envelope.
 - `routing`
 - `payload`
 
+Validation constraints:
+- Top-level envelope should reject unknown fields (`additionalProperties=false`).
+- `source` and `routing` should also reject unknown fields.
+
 ## Source metadata
 
 `source` must include:
@@ -24,6 +28,15 @@ All services exchange a canonical `v1` event envelope.
 - `component_id`
 
 Optional source attributes include platform/channel/actor IDs, message/request IDs, peer identity, cert fingerprint, and transport mode.
+
+`component_type` values in `v1`:
+- `listener`
+- `gateway`
+- `subscriber`
+- `cron`
+- `tool_host`
+- `provider`
+- `operator`
 
 ## Routing metadata
 
@@ -59,6 +72,8 @@ Optional routing attributes:
 ## Pairing event payload notes
 
 - `pairing.started` and `pairing.failed` include `remote_uri` and `initiated_via`.
+- `pairing.started` includes `remote_component_type`.
+- `pairing.completed` includes `remote_component_id`, `remote_component_type`, remote public keys, and `mtls_cert_fingerprint`.
 - Current control-plane initiation value is `initiated_via=admin_socket`.
 - Pairing examples use secure remote URI form (`wss://...`).
 

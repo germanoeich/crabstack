@@ -100,7 +100,32 @@ func resolveConfigFilePath() (string, bool, error) {
 		return resolvedPath, true, nil
 	}
 
-	for _, candidate := range []string{defaultConfigFileName, alternateConfigFileName} {
+	localCandidates := []string{
+		filepath.Join(crabstackDirName, defaultConfigFileName),
+		filepath.Join(crabstackDirName, alternateConfigFileName),
+	}
+	for _, candidate := range localCandidates {
+		info, err := os.Stat(candidate)
+		if err == nil {
+			if info.IsDir() {
+				return "", false, fmt.Errorf("config path %s is a directory", candidate)
+			}
+			return candidate, true, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", false, fmt.Errorf("stat config file %s: %w", candidate, err)
+		}
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", false, fmt.Errorf("resolve home directory for config lookup: %w", err)
+	}
+	homeCandidates := []string{
+		filepath.Join(homeDir, crabstackDirName, defaultConfigFileName),
+		filepath.Join(homeDir, crabstackDirName, alternateConfigFileName),
+	}
+	for _, candidate := range homeCandidates {
 		info, err := os.Stat(candidate)
 		if err == nil {
 			if info.IsDir() {

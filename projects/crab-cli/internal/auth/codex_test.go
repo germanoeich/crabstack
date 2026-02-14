@@ -300,6 +300,35 @@ func TestExtractChatGPTAccountID(t *testing.T) {
 	}
 }
 
+func TestDefaultCredentialsPath_PrefersHomeWithoutLocalCrabstack(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	setAuthWorkingDir(t, t.TempDir())
+
+	got := defaultCredentialsPath("codex.json")
+	want := filepath.Join(homeDir, ".crabstack", "auth", "codex.json")
+	if got != want {
+		t.Fatalf("unexpected default credentials path: got=%q want=%q", got, want)
+	}
+}
+
+func TestDefaultCredentialsPath_UsesLocalWhenCrabstackDirExists(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, ".crabstack"), 0o700); err != nil {
+		t.Fatalf("mkdir local .crabstack: %v", err)
+	}
+	setAuthWorkingDir(t, workDir)
+
+	got := defaultCredentialsPath("codex.json")
+	want := filepath.Join(".crabstack", "auth", "codex.json")
+	if got != want {
+		t.Fatalf("unexpected default credentials path: got=%q want=%q", got, want)
+	}
+}
+
 func jwtWithAccountID(accountID string) string {
 	return jwtWithAccountIDClaim("https://api.openai.com/auth/chatgpt_account_id", accountID)
 }
@@ -329,6 +358,18 @@ func reserveTCPAddr(t *testing.T) string {
 	addr := listener.Addr().String()
 	_ = listener.Close()
 	return addr
+}
+
+func setAuthWorkingDir(t *testing.T, dir string) {
+	t.Helper()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 }
 
 func assertEqual(t *testing.T, got, want, field string) {

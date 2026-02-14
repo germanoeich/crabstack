@@ -95,6 +95,7 @@ gateway:
 func TestGatewayFromYAMLAndEnv_DefaultWhenNoFile(t *testing.T) {
 	clearGatewayEnv(t)
 	t.Setenv(EnvConfigFile, "")
+	t.Setenv("HOME", t.TempDir())
 
 	originalWD, err := os.Getwd()
 	if err != nil {
@@ -116,6 +117,120 @@ func TestGatewayFromYAMLAndEnv_DefaultWhenNoFile(t *testing.T) {
 	}
 	if cfg.DBDSN != DefaultGatewayDBDSN {
 		t.Fatalf("unexpected default DB DSN %q", cfg.DBDSN)
+	}
+}
+
+func TestGatewayFromYAMLAndEnv_PathOrderPrefersLocalCrabstackConfig(t *testing.T) {
+	clearGatewayEnv(t)
+	t.Setenv(EnvConfigFile, "")
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	workDir := t.TempDir()
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalWD) })
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	if err := writeConfigFileAt(filepath.Join(homeDir, ".crabstack", "config.yaml"), `
+version: 1
+gateway:
+  gateway_id: "home-gw"
+`); err != nil {
+		t.Fatalf("write home config: %v", err)
+	}
+	if err := writeConfigFileAt(filepath.Join(workDir, ".crabstack", "config.yaml"), `
+version: 1
+gateway:
+  gateway_id: "local-gw"
+`); err != nil {
+		t.Fatalf("write local config: %v", err)
+	}
+
+	cfg, err := GatewayFromYAMLAndEnv()
+	if err != nil {
+		t.Fatalf("GatewayFromYAMLAndEnv failed: %v", err)
+	}
+	if cfg.GatewayID != "local-gw" {
+		t.Fatalf("expected local gateway_id, got %q", cfg.GatewayID)
+	}
+}
+
+func TestGatewayFromYAMLAndEnv_PathOrderFallsBackToHomeCrabstackConfig(t *testing.T) {
+	clearGatewayEnv(t)
+	t.Setenv(EnvConfigFile, "")
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	workDir := t.TempDir()
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalWD) })
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	if err := writeConfigFileAt(filepath.Join(homeDir, ".crabstack", "config.yml"), `
+version: 1
+gateway:
+  gateway_id: "home-gw"
+`); err != nil {
+		t.Fatalf("write home config: %v", err)
+	}
+
+	cfg, err := GatewayFromYAMLAndEnv()
+	if err != nil {
+		t.Fatalf("GatewayFromYAMLAndEnv failed: %v", err)
+	}
+	if cfg.GatewayID != "home-gw" {
+		t.Fatalf("expected home gateway_id, got %q", cfg.GatewayID)
+	}
+}
+
+func TestGatewayFromYAMLAndEnv_NormalizesCrabstackPathsWithoutLocalDir(t *testing.T) {
+	clearGatewayEnv(t)
+	t.Setenv(EnvConfigFile, "")
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	workDir := t.TempDir()
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalWD) })
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	configPath := writeConfigFile(t, `
+version: 1
+gateway:
+  key_dir: ".crabstack/keys"
+  admin_socket_path: ".crabstack/run/gateway-admin.sock"
+`)
+	t.Setenv(EnvConfigFile, configPath)
+
+	cfg, err := GatewayFromYAMLAndEnv()
+	if err != nil {
+		t.Fatalf("GatewayFromYAMLAndEnv failed: %v", err)
+	}
+	expectedKeyDir := filepath.Join(homeDir, ".crabstack", "keys")
+	expectedAdminSocket := filepath.Join(homeDir, ".crabstack", "run", "gateway-admin.sock")
+	if cfg.KeyDir != expectedKeyDir {
+		t.Fatalf("expected key_dir %q, got %q", expectedKeyDir, cfg.KeyDir)
+	}
+	if cfg.AdminSocketPath != expectedAdminSocket {
+		t.Fatalf("expected admin_socket_path %q, got %q", expectedAdminSocket, cfg.AdminSocketPath)
 	}
 }
 
@@ -201,6 +316,45 @@ cli:
 	}
 }
 
+func TestCLIFromYAMLAndEnv_NormalizesCrabstackPathsWithoutLocalDir(t *testing.T) {
+	clearCLIEnv(t)
+	t.Setenv(EnvConfigFile, "")
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	workDir := t.TempDir()
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalWD) })
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	configPath := writeConfigFile(t, `
+version: 1
+cli:
+  gateway_admin_socket_path: ".crabstack/run/gateway-admin.sock"
+  gateway_key_dir: ".crabstack/keys"
+`)
+	t.Setenv(EnvConfigFile, configPath)
+
+	cfg, err := CLIFromYAMLAndEnv()
+	if err != nil {
+		t.Fatalf("CLIFromYAMLAndEnv failed: %v", err)
+	}
+	expectedKeyDir := filepath.Join(homeDir, ".crabstack", "keys")
+	expectedAdminSocket := filepath.Join(homeDir, ".crabstack", "run", "gateway-admin.sock")
+	if cfg.GatewayKeyDir != expectedKeyDir {
+		t.Fatalf("expected gateway_key_dir %q, got %q", expectedKeyDir, cfg.GatewayKeyDir)
+	}
+	if cfg.GatewayAdminSocketPath != expectedAdminSocket {
+		t.Fatalf("expected gateway_admin_socket_path %q, got %q", expectedAdminSocket, cfg.GatewayAdminSocketPath)
+	}
+}
+
 func TestCLIFromYAMLAndEnv_InvalidDuration(t *testing.T) {
 	clearCLIEnv(t)
 	t.Setenv(EnvConfigFile, writeConfigFile(t, `
@@ -222,10 +376,17 @@ func writeConfigFile(t *testing.T, content string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(content)+"\n"), 0o600); err != nil {
+	if err := writeConfigFileAt(path, content); err != nil {
 		t.Fatalf("write config file: %v", err)
 	}
 	return path
+}
+
+func writeConfigFileAt(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(strings.TrimSpace(content)+"\n"), 0o600)
 }
 
 func clearGatewayEnv(t *testing.T) {

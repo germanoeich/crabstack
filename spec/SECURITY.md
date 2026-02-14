@@ -93,7 +93,9 @@ Notes:
   - `refresh_token`
   - `expires_at`
   - extracted ChatGPT account id claim (`https://api.openai.com/auth.chatgpt_account_id`)
-- Default credential path: `~/.crabstack/auth/codex.json`
+- Default credential path:
+  - `./.crabstack/auth/codex.json` when local `./.crabstack` exists
+  - `~/.crabstack/auth/codex.json` when local `./.crabstack` does not exist
 - Credentials file and parent directory must be created with owner-only permissions.
 
 ## Anthropic subscription OAuth bootstrap (CLI)
@@ -107,7 +109,9 @@ Notes:
   - `refresh_token`
   - `expires_at`
   - provider/account metadata when available (`account_id`, `account_email`, account metadata map)
-- Default credential path: `~/.crabstack/auth/anthropic.json`
+- Default credential path:
+  - `./.crabstack/auth/anthropic.json` when local `./.crabstack` exists
+  - `~/.crabstack/auth/anthropic.json` when local `./.crabstack` does not exist
 - Credentials file and parent directory must be created with owner-only permissions.
 
 ## Persistence requirements

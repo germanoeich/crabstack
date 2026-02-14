@@ -13,6 +13,7 @@ For request/response schema details, see [Integration Tool Protocol](./integrati
 - Gateway is the caller and policy enforcer.
 - Pairing is triggered through gateway local admin socket control-plane APIs.
 - Pairing is mandatory before any runtime call is accepted.
+- Pairing establishes identity, not full runtime capability; allow/deny policy still applies.
 
 ## Minimum controls
 
@@ -26,6 +27,15 @@ For request/response schema details, see [Integration Tool Protocol](./integrati
 - Retries happen for transport failures and `retryable_error` outcomes.
 - Side-effecting tools should return stable operation IDs.
 - Idempotent tools must handle duplicate idempotency keys safely.
+
+## Authorization expectations
+
+- Default behavior is deny-by-default for remote actions.
+- `tool_host` peers are expected to receive `tool.call.requested` and publish only `tool.call.completed` or `tool.call.failed`.
+- Broader permissions require explicit peer policy overrides.
+- Temporary leases can reduce scope for session-specific runtime flows but never expand beyond role + policy.
+
+Policy and role contracts are detailed in [Integration Peer Auth](./integrations/peer-auth.mdx).
 
 ## Initial tool set
 

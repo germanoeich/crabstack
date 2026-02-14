@@ -79,8 +79,8 @@ func defaultGatewayConfig() GatewayConfig {
 		DBDriver:                  DefaultGatewayDBDriver,
 		DBDSN:                     DefaultGatewayDBDSN,
 		GatewayID:                 DefaultGatewayID,
-		KeyDir:                    DefaultGatewayKeyDir,
-		AdminSocketPath:           DefaultGatewayAdminSocketPath,
+		KeyDir:                    ResolveCrabstackPath(DefaultGatewayKeyDir),
+		AdminSocketPath:           ResolveCrabstackPath(DefaultGatewayAdminSocketPath),
 		PairTimeout:               DefaultGatewayPairTimeout,
 		PairRequireMTLSRemote:     DefaultGatewayRequireMTLSRemote,
 		PairAllowInsecureLoopback: DefaultGatewayAllowInsecureLoopbackPair,
@@ -101,10 +101,10 @@ func applyGatewayYAML(cfg *GatewayConfig, source fileGatewayConfig) error {
 		cfg.GatewayID = value
 	}
 	if value := strings.TrimSpace(source.KeyDir); value != "" {
-		cfg.KeyDir = value
+		cfg.KeyDir = ResolveCrabstackPath(value)
 	}
 	if value := strings.TrimSpace(source.AdminSocketPath); value != "" {
-		cfg.AdminSocketPath = value
+		cfg.AdminSocketPath = ResolveCrabstackPath(value)
 	}
 
 	pairTimeout, err := parseOptionalDuration(source.PairTimeout, cfg.PairTimeout, "gateway.pair_timeout")
@@ -144,8 +144,8 @@ func applyGatewayEnv(cfg *GatewayConfig) {
 	cfg.DBDriver = strings.ToLower(EnvOrDefault(EnvGatewayDBDriver, cfg.DBDriver))
 	cfg.DBDSN = EnvOrDefault(EnvGatewayDBDSN, cfg.DBDSN)
 	cfg.GatewayID = EnvOrDefault(EnvGatewayID, cfg.GatewayID)
-	cfg.KeyDir = EnvOrDefault(EnvGatewayKeyDir, cfg.KeyDir)
-	cfg.AdminSocketPath = EnvOrDefault(EnvGatewayAdminSocketPath, cfg.AdminSocketPath)
+	cfg.KeyDir = ResolveCrabstackPath(EnvOrDefault(EnvGatewayKeyDir, cfg.KeyDir))
+	cfg.AdminSocketPath = ResolveCrabstackPath(EnvOrDefault(EnvGatewayAdminSocketPath, cfg.AdminSocketPath))
 
 	if raw := EnvString(EnvGatewayPairTimeout); raw != "" {
 		parsed, err := time.ParseDuration(raw)

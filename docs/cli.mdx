@@ -1,0 +1,46 @@
+---
+title: CLI Operations
+description: Operator runbook for pairing checks, provider auth bootstrap, and manual event ingress.
+---
+
+Use this page for day-to-day CLI actions. Protocol details live in [Integrations](./integrations/index.mdx).
+
+## Core commands
+
+```bash
+crab pair test [--admin-socket <path>]
+crab pair tool <endpoint> <name> [--admin-socket <path>]
+crab pair subscriber <endpoint> <name> [--admin-socket <path>]
+crab pair cli <endpoint> <name> [--admin-socket <path>]
+crab event send <text>
+crab auth codex
+crab auth anthropic
+```
+
+## Pairing command mapping
+
+- `crab pair tool ...` maps to `component_type=tool_host`.
+- `crab pair subscriber ...` maps to `component_type=subscriber`.
+- `crab pair cli ...` maps to `component_type=operator` (`cli_admin` role profile).
+- `<name>` becomes `component_id` for the paired record.
+
+For full handshake phases and validation rules, see [Integration Pairing Flow](./integrations/pairing.mdx).
+
+## Provider auth bootstrap
+
+- `crab auth codex` runs OAuth + PKCE and stores credentials at `~/.crabstack/auth/codex.json` by default.
+- `crab auth anthropic` runs OAuth + PKCE/manual paste flow and stores credentials at `~/.crabstack/auth/anthropic.json` by default.
+- Credential files and parent directories should be owner-only readable/writable.
+- Monitor provider auth states (`valid`, `expiring`, `reauth_required`) and re-auth before outages.
+
+## One-shot event ingress
+
+- `crab event send <text>` publishes `channel.message.received` to gateway `POST /v1/events`.
+- Default source values are CLI-oriented (`platform=cli`, `channel=cli`).
+- Each invocation creates a new session id by default, so use it for quick operator tests, not long chat continuity.
+
+## Risk checks before production use
+
+1. Keep admin socket local-only and verify pairing trigger is never exposed on public ingress.
+2. Enforce mTLS for all remote endpoints.
+3. Confirm paired identity records exist before expecting remote runtime calls to succeed.

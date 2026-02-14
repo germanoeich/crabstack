@@ -25,6 +25,7 @@ At setup, generate and persist gateway identity:
 - Remotes must verify gateway-signed cert issuance payload before installing issued certs.
 - Gateway must only connect to explicitly paired remotes.
 - Runtime calls to remote tools must be denied until pairing is complete.
+- Pairing is identity bootstrap only; runtime actions are still authorization-gated.
 
 ## Authorization boundaries
 
@@ -32,10 +33,20 @@ At setup, generate and persist gateway identity:
 - Subscriber: event stream read only.
 - Tool host: callable methods gated by explicit policy.
 - Paired CLI principals (`component_type=operator`) can use `cli_admin` policy for remote management.
+- `cli_admin` does not grant remote pairing trigger; pairing initiation remains local admin-socket-only.
 
 On remote traffic, mTLS peer identity must match a paired record.
 
 Pairing trigger remains local-admin only, even for paired remote CLI management sessions.
+
+## CLI auth bootstrap security
+
+- `crab auth codex` stores credentials at `~/.crabstack/auth/codex.json` by default.
+- `crab auth anthropic` stores credentials at `~/.crabstack/auth/anthropic.json` by default.
+- Credential files and parent directories should be owner-only permissions.
+- Treat refresh tokens as long-lived secrets and rotate when compromise is suspected.
+
+For role profiles, action namespaces, and lease behavior, see [Integration Peer Auth](./integrations/peer-auth.mdx).
 
 ## Provider auth states
 

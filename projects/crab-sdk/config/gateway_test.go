@@ -1,8 +1,16 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestGatewayFromEnv_Default(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	setWorkingDir(t, t.TempDir())
+
 	t.Setenv(EnvGatewayHTTPAddr, "")
 	t.Setenv(EnvGatewayDBDriver, "")
 	t.Setenv(EnvGatewayDBDSN, "")
@@ -29,11 +37,13 @@ func TestGatewayFromEnv_Default(t *testing.T) {
 	if cfg.GatewayID != DefaultGatewayID {
 		t.Fatalf("expected default gateway id %q, got %q", DefaultGatewayID, cfg.GatewayID)
 	}
-	if cfg.KeyDir != DefaultGatewayKeyDir {
-		t.Fatalf("expected default key dir %q, got %q", DefaultGatewayKeyDir, cfg.KeyDir)
+	expectedKeyDir := filepath.Join(homeDir, ".crabstack", "keys")
+	if cfg.KeyDir != expectedKeyDir {
+		t.Fatalf("expected default key dir %q, got %q", expectedKeyDir, cfg.KeyDir)
 	}
-	if cfg.AdminSocketPath != DefaultGatewayAdminSocketPath {
-		t.Fatalf("expected default admin socket path %q, got %q", DefaultGatewayAdminSocketPath, cfg.AdminSocketPath)
+	expectedAdminSocket := filepath.Join(homeDir, ".crabstack", "run", "gateway-admin.sock")
+	if cfg.AdminSocketPath != expectedAdminSocket {
+		t.Fatalf("expected default admin socket path %q, got %q", expectedAdminSocket, cfg.AdminSocketPath)
 	}
 	if cfg.PairTimeout != DefaultGatewayPairTimeout {
 		t.Fatalf("expected default pair timeout %s, got %s", DefaultGatewayPairTimeout, cfg.PairTimeout)
@@ -43,6 +53,38 @@ func TestGatewayFromEnv_Default(t *testing.T) {
 	}
 	if cfg.PairAllowInsecureLoopback != DefaultGatewayAllowInsecureLoopbackPair {
 		t.Fatalf("expected default allow loopback %v, got %v", DefaultGatewayAllowInsecureLoopbackPair, cfg.PairAllowInsecureLoopback)
+	}
+}
+
+func TestGatewayFromEnv_DefaultPrefersLocalCrabstackWhenPresent(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, ".crabstack"), 0o700); err != nil {
+		t.Fatalf("mkdir local .crabstack: %v", err)
+	}
+	setWorkingDir(t, workDir)
+
+	t.Setenv(EnvGatewayHTTPAddr, "")
+	t.Setenv(EnvGatewayDBDriver, "")
+	t.Setenv(EnvGatewayDBDSN, "")
+	t.Setenv(EnvGatewayID, "")
+	t.Setenv(EnvGatewayKeyDir, "")
+	t.Setenv(EnvGatewayAdminSocketPath, "")
+	t.Setenv(EnvGatewayPairTimeout, "")
+	t.Setenv(EnvGatewayRequireMTLSRemote, "")
+	t.Setenv(EnvGatewayAllowInsecureLoopbackPairing, "")
+	t.Setenv(EnvGatewayPairMTLSCAFile, "")
+	t.Setenv(EnvGatewayPairMTLSCertFile, "")
+	t.Setenv(EnvGatewayPairMTLSKeyFile, "")
+
+	cfg := GatewayFromEnv()
+	if cfg.KeyDir != DefaultGatewayKeyDir {
+		t.Fatalf("expected local default key dir %q, got %q", DefaultGatewayKeyDir, cfg.KeyDir)
+	}
+	if cfg.AdminSocketPath != DefaultGatewayAdminSocketPath {
+		t.Fatalf("expected local default admin socket path %q, got %q", DefaultGatewayAdminSocketPath, cfg.AdminSocketPath)
 	}
 }
 
@@ -90,6 +132,20 @@ func TestGatewayFromEnv_Override(t *testing.T) {
 	}
 	if cfg.PairMTLSCAFile != "/tmp/ca.pem" || cfg.PairMTLSClientCertFile != "/tmp/client.crt" || cfg.PairMTLSClientPrivateKeyFile != "/tmp/client.key" {
 		t.Fatalf("expected mtls file overrides")
+	}
+}
+
+func setWorkingDir(t *testing.T, dir string) {
+	t.Helper()
+
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
 	}
 }
 

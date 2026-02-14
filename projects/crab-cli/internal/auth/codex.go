@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	sdkconfig "crabstack.local/projects/crab-sdk/config"
 )
 
 const (
@@ -200,11 +202,7 @@ func saveCredentials(path string, creds Credentials) (string, error) {
 }
 
 func defaultCredentialsPath(filename string) string {
-	home, err := os.UserHomeDir()
-	if err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".crabstack", "auth", filename)
-	}
-	return filepath.Join(".crabstack", "auth", filename)
+	return sdkconfig.ResolveCrabstackPath(filepath.Join(".crabstack", "auth", filename))
 }
 
 func (c Config) withDefaults() Config {
