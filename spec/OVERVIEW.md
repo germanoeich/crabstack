@@ -30,6 +30,7 @@ Crabstack is a modular Go toolkit for running personal/micro-group LLM agents ac
 - Config changes can be made by agents only via validated tools.
 - Full history is stored (not summary-only).
 - Security, transport, and pairing are defined in `SECURITY.md`.
+- Peer classes and authz are defined in `PEER_AUTH_MODEL.md`.
 
 ## Core architecture
 - `gateway-core`
@@ -60,10 +61,21 @@ Crabstack is a modular Go toolkit for running personal/micro-group LLM agents ac
   - `crab pair test [--admin-socket <path>]`
   - `crab pair tool <endpoint> <name> [--admin-socket <path>]`
   - `crab pair subscriber <endpoint> <name> [--admin-socket <path>]`
+  - `crab pair cli <endpoint> <name> [--admin-socket <path>]`
 - `component_type` and `component_id` are derived from command position:
-  - `tool` and `subscriber` select `component_type`
+  - `tool`, `subscriber`, and `cli` select `component_type`
+  - `cli` maps to `component_type=operator`
   - `<name>` maps to `component_id`
 - For non-test commands, gateway initiates remote pairing from the gateway process.
+
+## Peer model
+- Persistent peers:
+  - Paired, durable identities.
+  - Reconnect without re-pairing when identity checks pass.
+- Temporary peer leases:
+  - Runtime-scoped grants tied to tenant/agent/session and TTL.
+  - Revoked on disconnect/session close/expiry.
+  - Used for session-specific flows like `crab chat new` producer+subscriber attachments.
 
 ## Session and memory model
 - Sessions are durable and long-lived in gateway DB.

@@ -110,9 +110,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("listen path must start with /")
 	}
 	switch c.ComponentType {
-	case types.ComponentTypeToolHost, types.ComponentTypeListener, types.ComponentTypeSubscriber, types.ComponentTypeProvider:
+	case types.ComponentTypeToolHost, types.ComponentTypeListener, types.ComponentTypeSubscriber, types.ComponentTypeOperator:
 	default:
-		return fmt.Errorf("component_type must be one of tool_host, listener, subscriber, provider")
+		return fmt.Errorf("component_type must be one of tool_host, listener, subscriber, operator")
 	}
 	if c.Timeout <= 0 {
 		return fmt.Errorf("timeout must be > 0")
@@ -210,9 +210,9 @@ func (c GatewayPairConfig) Validate() error {
 		return fmt.Errorf("endpoint is required")
 	}
 	switch c.ComponentType {
-	case types.ComponentTypeToolHost, types.ComponentTypeListener, types.ComponentTypeSubscriber, types.ComponentTypeProvider:
+	case types.ComponentTypeToolHost, types.ComponentTypeListener, types.ComponentTypeSubscriber, types.ComponentTypeOperator:
 	default:
-		return fmt.Errorf("component_type must be one of tool_host, listener, subscriber, provider")
+		return fmt.Errorf("component_type must be one of tool_host, listener, subscriber, operator")
 	}
 	if c.Timeout <= 0 {
 		return fmt.Errorf("timeout must be > 0")

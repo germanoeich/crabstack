@@ -13,6 +13,7 @@ These instructions apply to everything under `docs/`.
 - Keep docs aligned with:
   - `spec/OVERVIEW.md`
   - `spec/SECURITY.md`
+  - `spec/PEER_AUTH_MODEL.md`
   - `spec/EVENT_SCHEMA.md`
   - `spec/TOOL_SCHEMA.md`
   - `spec/PAIRING_STRUCTS.md`

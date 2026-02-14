@@ -27,7 +27,7 @@ const (
 	ComponentToolHost   ComponentType = "tool_host"
 	ComponentListener   ComponentType = "listener"
 	ComponentSubscriber ComponentType = "subscriber"
-	ComponentProvider   ComponentType = "provider"
+	ComponentOperator   ComponentType = "operator"
 )
 
 type PairInit struct {

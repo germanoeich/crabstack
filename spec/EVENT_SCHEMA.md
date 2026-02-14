@@ -84,6 +84,7 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
             "subscriber",
             "cron",
             "tool_host",
+            "provider",
             "operator"
           ]
         },
@@ -289,7 +290,7 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
   "pairing_id": "string",
   "remote_uri": "wss://10.0.0.1:5225",
   "initiated_via": "admin_socket",
-  "remote_component_type": "tool_host|listener|subscriber|provider"
+  "remote_component_type": "tool_host|listener|subscriber|operator"
 }
 ```
 
@@ -299,7 +300,7 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
 {
   "pairing_id": "string",
   "remote_component_id": "string",
-  "remote_component_type": "tool_host|listener|subscriber|provider",
+  "remote_component_type": "tool_host|listener|subscriber|operator",
   "remote_public_key_ed25519": "base64...",
   "remote_public_key_x25519": "base64...",
   "mtls_cert_fingerprint": "sha256:..."
@@ -342,6 +343,8 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
 - If `routing.target` is missing for internal events, gateway resolves target from session `last_active_channel`.
 - Remote events must carry peer identity metadata (`peer_id` and `mtls_cert_fingerprint`) once pairing is complete.
 - Pairing lifecycle events are control-plane initiated and should set `source.transport=unix_socket`.
+- `source.component_type=operator` covers paired CLI principals.
+- Event publish/subscribe permissions are role-gated; see `PEER_AUTH_MODEL.md`.
 
 ## Go type hints
 - Prefer `json.RawMessage` for `payload` and decode by `event_type`.

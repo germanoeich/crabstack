@@ -3,7 +3,7 @@ title: Pair a New Remote Tool Host
 description: Operator runbook for securely pairing new remote components with the gateway.
 ---
 
-Use this when onboarding a new remote component (tool host, listener, subscriber, provider).
+Use this when onboarding a new remote component (tool host, listener, subscriber, remote CLI).
 
 For protocol-level message contracts, see [Integration Pairing Flow](./integrations/pairing.mdx).
 
@@ -21,9 +21,12 @@ For protocol-level message contracts, see [Integration Pairing Flow](./integrati
 ```bash
 crab pair tool wss://10.0.0.1:5225 memory-east
 crab pair subscriber wss://10.0.0.2:7443 discord-outbound
+crab pair cli wss://10.0.0.3:7443 gin-laptop
 ```
 
 Pairing is control-plane initiated through the gateway admin Unix socket. Gateway then opens the outbound remote session and marks pairing complete only after signature, challenge, CSR validation, and cert install confirmation pass.
+
+`crab pair cli` pairs a remote CLI principal for management operations (for example config/session control). Pair initiation itself still remains local admin-socket-only.
 
 ## What happens during pairing
 

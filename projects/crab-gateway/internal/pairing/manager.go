@@ -466,7 +466,7 @@ func isSupportedPairComponentType(t types.ComponentType) bool {
 	case types.ComponentTypeToolHost,
 		types.ComponentTypeListener,
 		types.ComponentTypeSubscriber,
-		types.ComponentTypeProvider:
+		types.ComponentTypeOperator:
 		return true
 	default:
 		return false
@@ -616,8 +616,8 @@ func ParseComponentType(v string) (types.ComponentType, error) {
 		return types.ComponentTypeListener, nil
 	case "subscriber":
 		return types.ComponentTypeSubscriber, nil
-	case "provider":
-		return types.ComponentTypeProvider, nil
+	case "operator", "cli":
+		return types.ComponentTypeOperator, nil
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnsupportedComponent, v)
 	}

@@ -30,10 +30,12 @@ CLI commands:
 crab pair test
 crab pair tool wss://10.0.0.1:5225 memory-east
 crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
+crab pair cli wss://10.0.0.3:7443/v1/pair gin-laptop
 ```
 
 Command rules:
-- `component_type` is inferred from subcommand (`tool` or `subscriber`).
+- `component_type` is inferred from subcommand (`tool`, `subscriber`, `cli`).
+- `cli` maps to `component_type=operator`.
 - `component_id` is provided as positional `<name>`.
 - `--admin-socket` is the only pairing transport override flag.
 - `crab pair test` uses defaults and is intended for local/operator verification.
@@ -41,8 +43,8 @@ Command rules:
 ### Phase 0: prerequisites
 - Gateway exposes local admin Unix socket for control-plane requests.
 - CLI/operator sends pair request through admin socket (no auth on local transport).
-- Remote tool host is configured with `gateway_public_key_ed25519`.
-- Remote tool host exposes pairing WS endpoint.
+- Remote component is configured with `gateway_public_key_ed25519`.
+- Remote component exposes pairing WS endpoint.
 - Pairing trigger endpoints are not exposed on public HTTP/WS ingress.
 
 ### Phase 1: signed initiation
@@ -170,6 +172,15 @@ Gateway responds:
 ```
 
 Gateway marks peer as paired and allows mTLS traffic.
+
+## Peer authorization requirements
+- Pairing only establishes identity; runtime tool/event permissions are enforced separately.
+- Default role behavior:
+  - `tool_host`: subscribe `tool.call.requested`, publish `tool.call.completed|tool.call.failed`.
+  - `subscriber`: may not consume or publish `tool.call.*` by default.
+  - `cli_admin` (paired CLI with `component_type=operator`): can manage runtime/config control-plane but cannot initiate pairing remotely.
+- Effective permissions are `role defaults + peer policy overrides + temporary lease scope`, with deny precedence.
+- See `PEER_AUTH_MODEL.md` for full peer class and authz contract.
 
 ## `GET /v1/tools` response schema
 

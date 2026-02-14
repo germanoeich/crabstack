@@ -31,8 +31,11 @@ At setup, generate and persist gateway identity:
 - Listener: ingress write only.
 - Subscriber: event stream read only.
 - Tool host: callable methods gated by explicit policy.
+- Paired CLI principals (`component_type=operator`) can use `cli_admin` policy for remote management.
 
 On remote traffic, mTLS peer identity must match a paired record.
+
+Pairing trigger remains local-admin only, even for paired remote CLI management sessions.
 
 ## Provider auth states
 

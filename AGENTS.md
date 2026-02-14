@@ -13,6 +13,7 @@ This repository is organized for a modular Go codebase with multiple projects/pa
 ## Spec index
 - `spec/OVERVIEW.md`
 - `spec/SECURITY.md`
+- `spec/PEER_AUTH_MODEL.md`
 - `spec/EVENT_SCHEMA.md`
 - `spec/TOOL_SCHEMA.md`
 - `spec/PAIRING_STRUCTS.md`

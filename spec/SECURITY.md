@@ -24,7 +24,7 @@ This document defines transport security, trust bootstrapping, remote pairing, a
 - Gateway public key is operator-distributed to remote components.
 
 ## Remote component onboarding
-- Remote listener/subscriber/provider/tool-host must be configured with `gateway_public_key_ed25519`.
+- Remote listener/subscriber/tool-host/operator must be configured with `gateway_public_key_ed25519`.
 - Remote component must reject pairing initiation when the gateway signature does not verify.
 - Gateway only connects to remote components that are explicitly paired.
 
@@ -35,10 +35,12 @@ CLI commands:
 crab pair test
 crab pair tool wss://10.0.0.1:5225 memory-east
 crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
+crab pair cli wss://10.0.0.3:7443/v1/pair gin-laptop
 ```
 
 Command rules:
-- `component_type` is inferred from subcommand (`tool` or `subscriber`).
+- `component_type` is inferred from subcommand (`tool`, `subscriber`, `cli`).
+- `cli` maps to `component_type=operator`.
 - `component_id` is provided as positional `<name>`.
 - `--admin-socket` remains an optional flag for all `crab pair *` commands.
 - `crab pair test` must run with sensible defaults so operators can validate pairing quickly.
@@ -58,6 +60,7 @@ Flow:
 Notes:
 - Pairing initiation is not exposed on public HTTP/WS ingress.
 - Gateway is always the active handshake initiator toward remote components.
+- Pairing trigger remains local-admin only, including when a remote CLI is paired for management.
 
 ## Cryptography requirements
 - Ed25519 is signature-only.
@@ -70,9 +73,11 @@ Notes:
 - Listener: ingress write privileges only.
 - Subscriber: event stream read privileges only.
 - Tool host: callable methods constrained by explicit tool policy.
+- Paired CLI (`component_type=operator`) may receive a `cli_admin` role profile for remote management.
+- `cli_admin` does not grant remote pairing initiation; pairing stays local admin socket only.
 - Remote requests must fail closed if mTLS peer identity does not match a paired record.
 
-## Subscription-backed provider auth states
+## Subscription-backed provider auth states (gateway-internal)
 - `valid`
 - `expiring`
 - `reauth_required`
@@ -93,6 +98,7 @@ Notes:
 
 ## Related docs
 - `OVERVIEW.md`
+- `PEER_AUTH_MODEL.md`
 - `EVENT_SCHEMA.md`
 - `TOOL_SCHEMA.md`
 - `PAIRING_STRUCTS.md`

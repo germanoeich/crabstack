@@ -10,6 +10,7 @@ Crabstack pairing is gateway-initiated and required before remote runtime traffi
 - Pairing starts from CLI/operator over the gateway admin Unix socket.
 - Pairing trigger endpoints are not exposed on public HTTP/WS ingress.
 - After trigger, gateway initiates outbound pairing to the remote endpoint (for example `wss://...`).
+- Pairing command variants include `tool`, `subscriber`, and `cli` (`cli` maps to `component_type=operator`).
 
 ## Message types
 
@@ -71,6 +72,8 @@ Recommended statuses:
 - `paired`
 - `failed`
 - `revoked`
+
+Paired principals are durable and may reconnect without re-pairing when identity checks still match.
 
 Common failure codes:
 - `SIGNATURE_INVALID`
