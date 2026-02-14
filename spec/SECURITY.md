@@ -29,11 +29,19 @@ This document defines transport security, trust bootstrapping, remote pairing, a
 - Gateway only connects to remote components that are explicitly paired.
 
 ## Pairing flow (gateway initiated)
-Command example:
+CLI commands:
 
 ```bash
-crab pair tool wss://10.0.0.1:5225
+crab pair test
+crab pair tool wss://10.0.0.1:5225 memory-east
+crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
 ```
+
+Command rules:
+- `component_type` is inferred from subcommand (`tool` or `subscriber`).
+- `component_id` is provided as positional `<name>`.
+- `--admin-socket` remains an optional flag for all `crab pair *` commands.
+- `crab pair test` must run with sensible defaults so operators can validate pairing quickly.
 
 Flow:
 1. Operator/CLI sends pair request to gateway admin Unix socket.

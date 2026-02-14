@@ -19,7 +19,8 @@ For protocol-level message contracts, see [Integration Pairing Flow](./integrati
 ## Pairing command
 
 ```bash
-crab pair tool wss://10.0.0.1:5225
+crab pair tool wss://10.0.0.1:5225 memory-east
+crab pair subscriber wss://10.0.0.2:7443 discord-outbound
 ```
 
 Pairing is control-plane initiated through the gateway admin Unix socket. Gateway then opens the outbound remote session and marks pairing complete only after signature, challenge, CSR validation, and cert install confirmation pass.

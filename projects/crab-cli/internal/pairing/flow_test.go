@@ -75,6 +75,10 @@ func TestPair(t *testing.T) {
 			http.Error(w, "endpoint is required", http.StatusBadRequest)
 			return
 		}
+		if req.ComponentID != "cli-test" {
+			http.Error(w, "component_id mismatch", http.StatusBadRequest)
+			return
+		}
 
 		dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
 		conn, _, err := dialer.Dial(req.Endpoint, nil)

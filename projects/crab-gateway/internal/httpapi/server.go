@@ -171,7 +171,11 @@ func (s *server) handlePairingsWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pairReq, err := toPairRequest(pairRequestBody{ComponentType: req.ComponentType, Endpoint: req.Endpoint})
+	pairReq, err := toPairRequest(pairRequestBody{
+		ComponentType: req.ComponentType,
+		ComponentID:   req.ComponentID,
+		Endpoint:      req.Endpoint,
+	})
 	if err != nil {
 		_ = conn.WriteJSON(wsPairResult{Action: "pair.result", OK: false, Error: err.Error()})
 		return
@@ -273,12 +277,14 @@ func isWebSocketOriginAllowed(r *http.Request) bool {
 
 type pairRequestBody struct {
 	ComponentType string `json:"component_type"`
+	ComponentID   string `json:"component_id"`
 	Endpoint      string `json:"endpoint"`
 }
 
 type wsPairMessage struct {
 	Action        string `json:"action"`
 	ComponentType string `json:"component_type"`
+	ComponentID   string `json:"component_id"`
 	Endpoint      string `json:"endpoint"`
 }
 
@@ -294,8 +300,13 @@ func toPairRequest(req pairRequestBody) (pairing.PairRequest, error) {
 	if err != nil {
 		return pairing.PairRequest{}, err
 	}
+	componentID := strings.TrimSpace(req.ComponentID)
+	if componentID == "" {
+		return pairing.PairRequest{}, errors.New("component_id is required")
+	}
 	return pairing.PairRequest{
 		ComponentType: componentType,
+		ComponentID:   componentID,
 		Endpoint:      strings.TrimSpace(req.Endpoint),
 	}, nil
 }

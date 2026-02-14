@@ -104,7 +104,7 @@ func TestPairingsRouteDisabledOnPublicServer(t *testing.T) {
 	svc := gateway.NewService(logger, d, store)
 	srv := NewServer(logger, ":0", svc, &fakePairingService{}, false)
 
-	body := []byte(`{"component_type":"tool","endpoint":"ws://10.0.0.1:5225"}`)
+	body := []byte(`{"component_type":"tool","component_id":"memory-east","endpoint":"ws://10.0.0.1:5225"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/pairings", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(rr, req)
@@ -128,7 +128,7 @@ func TestPairingsRoute(t *testing.T) {
 	}
 	h := newTestHandler(t, fake)
 
-	body := []byte(`{"component_type":"tool","endpoint":"ws://10.0.0.1:5225"}`)
+	body := []byte(`{"component_type":"tool","component_id":"memory-east","endpoint":"ws://10.0.0.1:5225"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/pairings", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -139,13 +139,16 @@ func TestPairingsRoute(t *testing.T) {
 	if fake.seen.ComponentType != types.ComponentTypeToolHost {
 		t.Fatalf("expected normalized component type tool_host, got %s", fake.seen.ComponentType)
 	}
+	if fake.seen.ComponentID != "memory-east" {
+		t.Fatalf("expected component id memory-east, got %s", fake.seen.ComponentID)
+	}
 }
 
 func TestPairingsRouteErrorMapping(t *testing.T) {
 	fake := &fakePairingService{err: errors.New("boom")}
 	h := newTestHandler(t, fake)
 
-	body := []byte(`{"component_type":"tool","endpoint":"ws://10.0.0.1:5225"}`)
+	body := []byte(`{"component_type":"tool","component_id":"memory-east","endpoint":"ws://10.0.0.1:5225"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/pairings", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -159,6 +162,13 @@ func TestPairingsRouteErrorMapping(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid request, got %d", rr.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/pairings", bytes.NewReader([]byte(`{"component_type":"tool","endpoint":"ws://10.0.0.1:5225"}`)))
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing component_id, got %d", rr.Code)
 	}
 }
 
@@ -183,7 +193,12 @@ func TestPairingsWS(t *testing.T) {
 	}
 	defer conn.Close()
 
-	if err := conn.WriteJSON(map[string]any{"action": "pair.start", "component_type": "listener", "endpoint": "ws://10.0.0.2:9000"}); err != nil {
+	if err := conn.WriteJSON(map[string]any{
+		"action":         "pair.start",
+		"component_type": "listener",
+		"component_id":   "listener-a",
+		"endpoint":       "ws://10.0.0.2:9000",
+	}); err != nil {
 		t.Fatalf("write ws request: %v", err)
 	}
 
@@ -196,6 +211,9 @@ func TestPairingsWS(t *testing.T) {
 	}
 	if result.Result == nil || result.Result.PairingID != "pair_ws" {
 		t.Fatalf("unexpected ws pairing result: %+v", result.Result)
+	}
+	if fake.seen.ComponentID != "listener-a" {
+		t.Fatalf("expected component_id listener-a, got %s", fake.seen.ComponentID)
 	}
 }
 
@@ -252,7 +270,12 @@ func TestPairingsWSAcceptsMatchingOrigin(t *testing.T) {
 	}
 	defer conn.Close()
 
-	if err := conn.WriteJSON(map[string]any{"action": "pair.start", "component_type": "listener", "endpoint": "ws://10.0.0.2:9000"}); err != nil {
+	if err := conn.WriteJSON(map[string]any{
+		"action":         "pair.start",
+		"component_type": "listener",
+		"component_id":   "listener-a",
+		"endpoint":       "ws://10.0.0.2:9000",
+	}); err != nil {
 		t.Fatalf("write ws request: %v", err)
 	}
 
@@ -290,6 +313,7 @@ func TestPairingsWSRejectsOversizedRequest(t *testing.T) {
 	if err := conn.WriteJSON(map[string]any{
 		"action":         "pair.start",
 		"component_type": "tool",
+		"component_id":   "tool-a",
 		"endpoint":       oversizedEndpoint,
 	}); err != nil {
 		t.Fatalf("write oversized ws request: %v", err)

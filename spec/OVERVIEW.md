@@ -56,7 +56,14 @@ Crabstack is a modular Go toolkit for running personal/micro-group LLM agents ac
 
 - `crab-cli` (operator-side)
 - Uses gateway admin Unix socket for control-plane actions.
-- For `crab pair`, gateway initiates remote pairing handshake from the gateway process.
+- `crab pair` command grammar:
+  - `crab pair test [--admin-socket <path>]`
+  - `crab pair tool <endpoint> <name> [--admin-socket <path>]`
+  - `crab pair subscriber <endpoint> <name> [--admin-socket <path>]`
+- `component_type` and `component_id` are derived from command position:
+  - `tool` and `subscriber` select `component_type`
+  - `<name>` maps to `component_id`
+- For non-test commands, gateway initiates remote pairing from the gateway process.
 
 ## Session and memory model
 - Sessions are durable and long-lived in gateway DB.

@@ -24,11 +24,19 @@ This protocol lets gateway call remote tools hosted by memory, cron, and other s
 - Optional later: `POST /v1/tools/cancel`.
 
 ## Pairing handshake (gateway initiated)
-Command example:
+CLI commands:
 
 ```bash
-crab pair tool wss://10.0.0.1:5225
+crab pair test
+crab pair tool wss://10.0.0.1:5225 memory-east
+crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
 ```
+
+Command rules:
+- `component_type` is inferred from subcommand (`tool` or `subscriber`).
+- `component_id` is provided as positional `<name>`.
+- `--admin-socket` is the only pairing transport override flag.
+- `crab pair test` uses defaults and is intended for local/operator verification.
 
 ### Phase 0: prerequisites
 - Gateway exposes local admin Unix socket for control-plane requests.

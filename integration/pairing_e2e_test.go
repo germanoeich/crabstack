@@ -115,10 +115,9 @@ func TestGatewayCLIPairing(t *testing.T) {
 	defer cancelCLI()
 	cliCmd := exec.CommandContext(
 		cliCtx,
-		cliBin, "pair",
+		cliBin, "pair", "test",
 		"-admin-socket", adminSocket,
 		"-gateway-public-key", gatewayPubB64,
-		"-component-type", "tool_host",
 		"-component-id", "integration-cli",
 		"-listen-addr", "127.0.0.1:0",
 		"-listen-path", "/v1/pair",
@@ -130,7 +129,7 @@ func TestGatewayCLIPairing(t *testing.T) {
 		t.Fatalf("run crab pair: %v\nCLI output:\n%s\nGateway logs:\n%s", err, string(cliOut), gatewayLogs.String())
 	}
 	cliText := string(cliOut)
-	if !strings.Contains(cliText, "pairing complete") {
+	if !strings.Contains(cliText, "pairing test complete") {
 		t.Fatalf("cli output missing completion marker\nCLI output:\n%s\nGateway logs:\n%s", cliText, gatewayLogs.String())
 	}
 

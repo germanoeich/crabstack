@@ -52,8 +52,25 @@ type Result struct {
 	MTLSCertFingerprint string
 }
 
+type GatewayPairConfig struct {
+	GatewayAdminSocketPath string
+	ComponentType          types.ComponentType
+	ComponentID            string
+	Endpoint               string
+	Timeout                time.Duration
+}
+
+type GatewayPairResult struct {
+	PairingID           string
+	Endpoint            string
+	ComponentID         string
+	ComponentType       types.ComponentType
+	MTLSCertFingerprint string
+}
+
 type gatewayPairRequest struct {
 	ComponentType string `json:"component_type"`
+	ComponentID   string `json:"component_id"`
 	Endpoint      string `json:"endpoint"`
 }
 
@@ -153,7 +170,7 @@ func Pair(ctx context.Context, cfg Config) (Result, error) {
 
 	triggerCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
-	gwResp, err := callGatewayPair(triggerCtx, cfg, endpoint)
+	gwResp, err := callGatewayPair(triggerCtx, cfg.GatewayAdminSocketPath, cfg.Timeout, cfg.ComponentType, cfg.ComponentID, endpoint)
 	if err != nil {
 		select {
 		case hsErr := <-state.errs:
@@ -180,6 +197,59 @@ func Pair(ctx context.Context, cfg Config) (Result, error) {
 	case <-triggerCtx.Done():
 		return Result{}, fmt.Errorf("wait for pairing completion: %w", triggerCtx.Err())
 	}
+}
+
+func (c GatewayPairConfig) Validate() error {
+	if strings.TrimSpace(c.GatewayAdminSocketPath) == "" {
+		return fmt.Errorf("gateway admin socket path is required")
+	}
+	if strings.TrimSpace(c.ComponentID) == "" {
+		return fmt.Errorf("component_id is required")
+	}
+	if strings.TrimSpace(c.Endpoint) == "" {
+		return fmt.Errorf("endpoint is required")
+	}
+	switch c.ComponentType {
+	case types.ComponentTypeToolHost, types.ComponentTypeListener, types.ComponentTypeSubscriber, types.ComponentTypeProvider:
+	default:
+		return fmt.Errorf("component_type must be one of tool_host, listener, subscriber, provider")
+	}
+	if c.Timeout <= 0 {
+		return fmt.Errorf("timeout must be > 0")
+	}
+	return nil
+}
+
+func TriggerGatewayPair(ctx context.Context, cfg GatewayPairConfig) (GatewayPairResult, error) {
+	if err := cfg.Validate(); err != nil {
+		return GatewayPairResult{}, err
+	}
+	triggerCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+
+	resp, err := callGatewayPair(
+		triggerCtx,
+		cfg.GatewayAdminSocketPath,
+		cfg.Timeout,
+		cfg.ComponentType,
+		strings.TrimSpace(cfg.ComponentID),
+		strings.TrimSpace(cfg.Endpoint),
+	)
+	if err != nil {
+		return GatewayPairResult{}, err
+	}
+
+	resultComponentType := types.ComponentType(strings.TrimSpace(resp.Peer.ComponentType))
+	if resultComponentType == "" {
+		resultComponentType = cfg.ComponentType
+	}
+	return GatewayPairResult{
+		PairingID:           resp.PairingID,
+		Endpoint:            resp.Endpoint,
+		ComponentID:         strings.TrimSpace(resp.Peer.ComponentID),
+		ComponentType:       resultComponentType,
+		MTLSCertFingerprint: strings.TrimSpace(resp.Peer.MTLSCertFingerprint),
+	}, nil
 }
 
 type serverState struct {
@@ -392,9 +462,10 @@ func (s *serverState) pushError(err error) {
 	})
 }
 
-func callGatewayPair(ctx context.Context, cfg Config, endpoint string) (gatewayPairResponse, error) {
+func callGatewayPair(ctx context.Context, adminSocketPath string, timeout time.Duration, componentType types.ComponentType, componentID, endpoint string) (gatewayPairResponse, error) {
 	requestBody := gatewayPairRequest{
-		ComponentType: string(cfg.ComponentType),
+		ComponentType: string(componentType),
+		ComponentID:   strings.TrimSpace(componentID),
 		Endpoint:      endpoint,
 	}
 	encoded, err := json.Marshal(requestBody)
@@ -405,14 +476,14 @@ func callGatewayPair(ctx context.Context, cfg Config, endpoint string) (gatewayP
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var d net.Dialer
-			return d.DialContext(ctx, "unix", cfg.GatewayAdminSocketPath)
+			return d.DialContext(ctx, "unix", adminSocketPath)
 		},
 	}
 	defer transport.CloseIdleConnections()
 
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   cfg.Timeout,
+		Timeout:   timeout,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/v1/pairings", bytes.NewReader(encoded))

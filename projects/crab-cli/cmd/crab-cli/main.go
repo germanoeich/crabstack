@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -19,11 +23,14 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && strings.EqualFold(strings.TrimSpace(os.Args[1]), "pair") {
-		if err := runPairCommand(os.Args[2:]); err != nil {
-			log.Fatalf("crab pair failed: %v", err)
+	if len(os.Args) > 1 {
+		switch strings.ToLower(strings.TrimSpace(os.Args[1])) {
+		case "pair":
+			if err := runPairCommand(os.Args[2:]); err != nil {
+				log.Fatalf("crab pair failed: %v", err)
+			}
+			return
 		}
-		return
 	}
 
 	cfg, err := configFromFlags(os.Args[1:])
@@ -74,29 +81,54 @@ func configFromFlags(args []string) (client.Config, error) {
 }
 
 func runPairCommand(args []string) error {
-	fs := flag.NewFlagSet("crab pair", flag.ContinueOnError)
+	if len(args) == 0 {
+		return fmt.Errorf("usage: crab pair <test|tool|subscriber> ...")
+	}
+
+	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
+	switch subcommand {
+	case "test":
+		return runPairTestCommand(args[1:])
+	case "tool":
+		return runPairTargetCommand("tool", types.ComponentTypeToolHost, args[1:])
+	case "subscriber":
+		return runPairTargetCommand("subscriber", types.ComponentTypeSubscriber, args[1:])
+	default:
+		return fmt.Errorf("unsupported pair subcommand %q (supported: test, tool, subscriber)", subcommand)
+	}
+}
+
+func runPairTargetCommand(subcommand string, componentType types.ComponentType, args []string) error {
+	fs := flag.NewFlagSet("crab pair "+subcommand, flag.ContinueOnError)
 	adminSocket := fs.String("admin-socket", envOrDefault("CRAB_GATEWAY_ADMIN_SOCKET_PATH", ".crabstack/run/gateway-admin.sock"), "gateway admin unix socket path")
-	gatewayPub := fs.String("gateway-public-key", strings.TrimSpace(os.Getenv("CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519")), "trusted gateway ed25519 public key (base64)")
-	componentType := fs.String("component-type", envOrDefault("CRAB_CLI_PAIR_COMPONENT_TYPE", string(types.ComponentTypeToolHost)), "pair component type (tool_host|listener|subscriber|provider)")
-	componentID := fs.String("component-id", envOrDefault("CRAB_CLI_COMPONENT_ID", hostnameOrDefault("crab-cli")), "component id")
-	listenAddr := fs.String("listen-addr", envOrDefault("CRAB_CLI_PAIR_LISTEN_ADDR", "127.0.0.1:0"), "local listen address for temporary pair endpoint")
-	listenPath := fs.String("listen-path", envOrDefault("CRAB_CLI_PAIR_LISTEN_PATH", "/v1/pair"), "local listen path for temporary pair endpoint")
 	timeout := fs.Duration("timeout", 20*time.Second, "pairing timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
+	positionals := fs.Args()
+	if len(positionals) != 2 {
+		return fmt.Errorf("usage: crab pair %s [--admin-socket <path>] [--timeout <duration>] <endpoint> <name>", subcommand)
+	}
+
+	endpoint := strings.TrimSpace(positionals[0])
+	componentID := strings.TrimSpace(positionals[1])
+	if endpoint == "" {
+		return fmt.Errorf("endpoint is required")
+	}
+	if componentID == "" {
+		return fmt.Errorf("name is required")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	result, err := pairing.Pair(ctx, pairing.Config{
-		GatewayAdminSocketPath:        strings.TrimSpace(*adminSocket),
-		GatewayPublicKeyEd25519Base64: strings.TrimSpace(*gatewayPub),
-		ComponentType:                 types.ComponentType(strings.TrimSpace(*componentType)),
-		ComponentID:                   strings.TrimSpace(*componentID),
-		ListenAddr:                    strings.TrimSpace(*listenAddr),
-		ListenPath:                    strings.TrimSpace(*listenPath),
-		Timeout:                       *timeout,
+	result, err := pairing.TriggerGatewayPair(ctx, pairing.GatewayPairConfig{
+		GatewayAdminSocketPath: strings.TrimSpace(*adminSocket),
+		ComponentType:          componentType,
+		ComponentID:            componentID,
+		Endpoint:               endpoint,
+		Timeout:                *timeout,
 	})
 	if err != nil {
 		return err
@@ -111,6 +143,89 @@ func runPairCommand(args []string) error {
 		result.MTLSCertFingerprint,
 	)
 	return nil
+}
+
+func runPairTestCommand(args []string) error {
+	fs := flag.NewFlagSet("crab pair test", flag.ContinueOnError)
+	adminSocket := fs.String("admin-socket", envOrDefault("CRAB_GATEWAY_ADMIN_SOCKET_PATH", ".crabstack/run/gateway-admin.sock"), "gateway admin unix socket path")
+	gatewayPub := fs.String("gateway-public-key", strings.TrimSpace(os.Getenv("CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519")), "trusted gateway ed25519 public key (base64)")
+	componentID := fs.String("component-id", envOrDefault("CRAB_CLI_COMPONENT_ID", hostnameOrDefault("crab-cli-test")), "component id")
+	listenAddr := fs.String("listen-addr", envOrDefault("CRAB_CLI_PAIR_LISTEN_ADDR", "127.0.0.1:0"), "local listen address for temporary pair endpoint")
+	listenPath := fs.String("listen-path", envOrDefault("CRAB_CLI_PAIR_LISTEN_PATH", "/v1/pair"), "local listen path for temporary pair endpoint")
+	timeout := fs.Duration("timeout", 20*time.Second, "pairing timeout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	resolvedGatewayPub, err := resolveGatewayPublicKey(*gatewayPub)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+
+	result, err := pairing.Pair(ctx, pairing.Config{
+		GatewayAdminSocketPath:        strings.TrimSpace(*adminSocket),
+		GatewayPublicKeyEd25519Base64: resolvedGatewayPub,
+		ComponentType:                 types.ComponentTypeToolHost,
+		ComponentID:                   strings.TrimSpace(*componentID),
+		ListenAddr:                    strings.TrimSpace(*listenAddr),
+		ListenPath:                    strings.TrimSpace(*listenPath),
+		Timeout:                       *timeout,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf(
+		"pairing test complete\npairing_id=%s\ncomponent_type=%s\ncomponent_id=%s\nendpoint=%s\nmtls_cert_fingerprint=%s\n",
+		result.PairingID,
+		result.ComponentType,
+		result.ComponentID,
+		result.Endpoint,
+		result.MTLSCertFingerprint,
+	)
+	return nil
+}
+
+func resolveGatewayPublicKey(flagValue string) (string, error) {
+	key := strings.TrimSpace(flagValue)
+	if key != "" {
+		return key, nil
+	}
+
+	keyDir := envOrDefault("CRAB_GATEWAY_KEY_DIR", ".crabstack/keys")
+	identityPath := filepath.Join(keyDir, "gateway_identity.json")
+	data, err := os.ReadFile(identityPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("gateway public key is required (set -gateway-public-key or CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519); identity file not found at %s", identityPath)
+		}
+		return "", fmt.Errorf("read gateway identity file: %w", err)
+	}
+
+	var identityRecord struct {
+		PrivateKeyEd25519 string `json:"private_key_ed25519"`
+	}
+	if err := json.Unmarshal(data, &identityRecord); err != nil {
+		return "", fmt.Errorf("decode gateway identity file: %w", err)
+	}
+
+	privateKeyB64 := strings.TrimSpace(identityRecord.PrivateKeyEd25519)
+	if privateKeyB64 == "" {
+		return "", fmt.Errorf("gateway identity file is missing private_key_ed25519")
+	}
+	privateKeyBytes, err := base64.StdEncoding.DecodeString(privateKeyB64)
+	if err != nil {
+		return "", fmt.Errorf("decode gateway private key: %w", err)
+	}
+	if len(privateKeyBytes) != ed25519.PrivateKeySize {
+		return "", fmt.Errorf("invalid gateway private key size %d", len(privateKeyBytes))
+	}
+
+	publicKey := ed25519.PrivateKey(privateKeyBytes).Public().(ed25519.PublicKey)
+	return base64.StdEncoding.EncodeToString(publicKey), nil
 }
 
 func envOrDefault(key, fallback string) string {

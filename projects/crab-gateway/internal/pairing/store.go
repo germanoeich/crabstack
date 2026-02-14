@@ -2,7 +2,6 @@ package pairing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -64,11 +63,12 @@ func (s *GormPeerStore) GetPeerByEndpoint(ctx context.Context, endpoint string) 
 	}
 
 	var row peerRow
-	if err := s.db.WithContext(ctx).Where("endpoint = ?", endpoint).Take(&row).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return types.PairedPeerRecord{}, fmt.Errorf("%w: peer endpoint %s", ErrProtocolViolation, endpoint)
-		}
-		return types.PairedPeerRecord{}, fmt.Errorf("get peer: %w", err)
+	res := s.db.WithContext(ctx).Where("endpoint = ?", endpoint).Limit(1).Find(&row)
+	if res.Error != nil {
+		return types.PairedPeerRecord{}, fmt.Errorf("get peer: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return types.PairedPeerRecord{}, fmt.Errorf("%w: peer endpoint %s", ErrProtocolViolation, endpoint)
 	}
 	return row.toRecord(), nil
 }

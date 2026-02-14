@@ -6,20 +6,33 @@ Terminal UI client for Crabstack pairing + event exchange.
 - Runs a TUI (`tview`) interface.
 - Sends `channel.message.received` events to gateway.
 - Receives gateway `EventEnvelope` messages and renders them live.
-- Supports `pair` command to pair CLI with gateway using full CSR flow.
+- Supports gateway-initiated pairing commands:
+  - `crab pair tool <endpoint> <name>`
+  - `crab pair subscriber <endpoint> <name>`
+  - `crab pair test`
 
-## Pair CLI With Gateway
+## Pair External Component (Gateway-Initiated)
 From `projects/crab-cli`:
 
 ```bash
-CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519='<gateway-ed25519-pub-b64>' \
-crab pair \
-  -admin-socket .crabstack/run/gateway-admin.sock \
-  -component-type tool_host \
-  -component-id crab-cli
+crab pair tool wss://10.0.0.1:5225/v1/pair memory-east
+crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
 ```
 
-The `pair` command:
+The `pair tool` / `pair subscriber` commands:
+- Calls gateway admin Unix socket `POST /v1/pairings`.
+- Sends `component_type` from subcommand and `component_id` from `<name>`.
+- Does not host a local websocket endpoint.
+- Prints `pairing_id`, endpoint, resolved component identity, and certificate fingerprint.
+
+## Pairing Handshake Test
+From `projects/crab-cli`:
+
+```bash
+crab pair test
+```
+
+The `pair test` command:
 - Starts a temporary local WS pairing endpoint.
 - Calls gateway admin Unix socket `POST /v1/pairings`.
 - Completes full handshake:
@@ -32,6 +45,7 @@ The `pair` command:
   - `pair.csr_installed`
   - `pair.complete`
 - Prints `pairing_id`, endpoint, and issued certificate fingerprint.
+- Uses defaults so it can run without extra args. `-gateway-public-key` is optional; if unset, CLI loads gateway public key from `<CRAB_GATEWAY_KEY_DIR>/gateway_identity.json` (default `.crabstack/keys/gateway_identity.json`).
 
 ## Run
 From `projects/crab-cli`:
@@ -46,5 +60,5 @@ Then type into the `Send text>` input and press Enter.
 Use `/quit` to exit.
 
 ## Protocol notes
-- Gateway public key is required and strictly verified.
+- Gateway public key is required and strictly verified for websocket handshake flows (`crab` TUI / `crab pair test`).
 - Pair challenge decryption uses the ephemeral key material provided in challenge `aad`.

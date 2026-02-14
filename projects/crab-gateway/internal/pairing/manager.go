@@ -30,6 +30,7 @@ type Service interface {
 
 type PairRequest struct {
 	ComponentType types.ComponentType `json:"component_type"`
+	ComponentID   string              `json:"component_id,omitempty"`
 	Endpoint      string              `json:"endpoint"`
 }
 
@@ -174,6 +175,9 @@ func (m *Manager) Pair(ctx context.Context, req PairRequest) (PairResult, error)
 	}
 	if strings.TrimSpace(identityMsg.Remote.ComponentID) == "" {
 		return PairResult{}, fmt.Errorf("%w: remote component_id is required", ErrProtocolViolation)
+	}
+	if requestedID := strings.TrimSpace(req.ComponentID); requestedID != "" && requestedID != identityMsg.Remote.ComponentID {
+		return PairResult{}, fmt.Errorf("%w: requested component_id=%s remote component_id=%s", ErrProtocolViolation, requestedID, identityMsg.Remote.ComponentID)
 	}
 	if strings.TrimSpace(observedFingerprint) != "" {
 		advertisedFingerprint := strings.TrimSpace(identityMsg.Remote.MTLSCertFingerprint)

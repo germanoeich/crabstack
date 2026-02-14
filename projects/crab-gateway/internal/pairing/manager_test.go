@@ -362,6 +362,79 @@ func TestManagerPair_RejectsIdentityWithEmptyComponentID(t *testing.T) {
 	}
 }
 
+func TestManagerPair_RejectsIdentityWithMismatchedRequestedComponentID(t *testing.T) {
+	identityDir := filepath.Join(t.TempDir(), "keys")
+	gatewayIdentity, err := LoadOrCreateIdentity(identityDir, "gw_test")
+	if err != nil {
+		t.Fatalf("load gateway identity: %v", err)
+	}
+	certificateAuthority, err := LoadOrCreateCertificateAuthority(identityDir, "gw_test")
+	if err != nil {
+		t.Fatalf("load certificate authority: %v", err)
+	}
+	peerStore, err := NewGormPeerStore("sqlite", filepath.Join(t.TempDir(), "pairing.db"))
+	if err != nil {
+		t.Fatalf("new peer store: %v", err)
+	}
+	defer func() { _ = peerStore.Close() }()
+
+	remoteEdPub, remoteEdPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate remote ed25519: %v", err)
+	}
+	curve := ecdh.X25519()
+	remoteXPriv, err := curve.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate remote x25519: %v", err)
+	}
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		var initMsg types.PairInit
+		if err := conn.ReadJSON(&initMsg); err != nil {
+			return
+		}
+		identityMsg := types.PairIdentity{
+			Type:      types.PairingMessageTypeIdentity,
+			Version:   types.VersionV1,
+			PairingID: initMsg.PairingID,
+			Remote: types.PairRemoteInfo{
+				ComponentType:    types.ComponentTypeToolHost,
+				ComponentID:      "tool-actual",
+				PublicKeyEd25519: base64.StdEncoding.EncodeToString(remoteEdPub),
+				PublicKeyX25519:  base64.StdEncoding.EncodeToString(remoteXPriv.PublicKey().Bytes()),
+			},
+		}
+		identityMsg.SigEd25519, _ = signPairIdentity(remoteEdPriv, identityMsg)
+		_ = conn.WriteJSON(identityMsg)
+	}))
+	defer ts.Close()
+
+	u, _ := url.Parse(ts.URL)
+	u.Scheme = "ws"
+	manager := NewManager(log.New(os.Stdout, "", 0), gatewayIdentity, peerStore, 5*time.Second, WithCertificateIssuer(certificateAuthority))
+	_, err = manager.Pair(context.Background(), PairRequest{
+		ComponentType: types.ComponentTypeToolHost,
+		ComponentID:   "tool-expected",
+		Endpoint:      u.String(),
+	})
+	if err == nil {
+		t.Fatalf("expected requested component_id mismatch error")
+	}
+	if !errors.Is(err, ErrProtocolViolation) {
+		t.Fatalf("expected protocol violation, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "requested component_id") {
+		t.Fatalf("expected requested component_id mismatch message, got %v", err)
+	}
+}
+
 func TestReadPairIdentityHandlesPairError(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

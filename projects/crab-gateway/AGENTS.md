@@ -64,6 +64,7 @@ This project implements the Crabstack gateway runtime:
 - Peer activation persistence occurs only after `pair.complete` is successfully sent.
 - `pair.challenge_response.version` must be validated against supported protocol version(s) before activation.
 - `pair.identity.remote.component_id` is required and must be non-empty.
+- Pairing request `component_id` is required at the admin API boundary and must match `pair.identity.remote.component_id`.
 - Pairing WS ingress must reject cross-origin browser upgrades; allow only same-origin or non-browser clients without `Origin`.
 - Pairing websocket reads must enforce a strict message size limit to avoid handshake memory exhaustion.
 - Pairing handshake reads must share one end-to-end deadline derived from the pairing context timeout.

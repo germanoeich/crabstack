@@ -3,7 +3,7 @@
 ## Scope
 This project implements a terminal operator client for Crabstack:
 - Trigger gateway-initiated pairing through the admin Unix socket.
-- Act as a temporary remote endpoint for the full v1 pairing handshake.
+- Provide a dedicated pairing test flow that acts as a temporary remote endpoint for full v1 handshake validation.
 - Send canonical event envelopes to gateway.
 - Receive canonical event envelopes from gateway.
 - Render interaction via a TUI.
@@ -18,7 +18,14 @@ This project implements a terminal operator client for Crabstack:
 - Pairing signatures must use canonical payloads that exclude `sig_ed25519`.
 - `pair.init` signature payload must match gateway canonical shape (`gateway_id`, `public_key_ed25519`, `nonce`, `issued_at`) and must not include transport-only fields.
 - Event transport must use `types.EventEnvelope`.
-- `crab pair` must run full handshake phases:
+- `crab pair tool <endpoint> <name>` and `crab pair subscriber <endpoint> <name>` are gateway-trigger-only:
+  - send `POST /v1/pairings` over admin socket
+  - map command to request:
+    - `component_type` from subcommand (`tool_host` / `subscriber`)
+    - `component_id` from positional `<name>`
+    - `endpoint` from positional `<endpoint>`
+  - never host a local websocket endpoint
+- `crab pair test` runs full handshake phases:
   - `pair.init`
   - `pair.identity`
   - `pair.challenge`
@@ -28,8 +35,10 @@ This project implements a terminal operator client for Crabstack:
   - `pair.csr_installed`
   - `pair.complete`
 - Pair trigger requests must target gateway admin Unix socket (`POST /v1/pairings`).
+- `crab pair test` defaults should work without flags in local operator setups.
 
 ## Testing requirements
+- Pair trigger path (`crab pair`) must be tested independently from local handshake hosting.
 - Pairing handshake flow must be tested against a mock gateway WS server.
 - Client tests must cover both success and failure paths.
 - Pair command tests must cover gateway-admin trigger + CSR handshake completion.

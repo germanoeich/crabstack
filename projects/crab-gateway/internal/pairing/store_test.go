@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -48,5 +49,22 @@ func TestGormPeerStore(t *testing.T) {
 	}
 	if loaded.Status != types.PairedPeerStatusActive {
 		t.Fatalf("expected active status, got %s", loaded.Status)
+	}
+}
+
+func TestGormPeerStore_GetPeerByEndpointNotFound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.db")
+	store, err := NewGormPeerStore("sqlite", path)
+	if err != nil {
+		t.Fatalf("new gorm peer store: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	_, err = store.GetPeerByEndpoint(context.Background(), "ws://127.0.0.1:9999")
+	if err == nil {
+		t.Fatalf("expected not found error")
+	}
+	if !errors.Is(err, ErrProtocolViolation) {
+		t.Fatalf("expected protocol violation, got %v", err)
 	}
 }
