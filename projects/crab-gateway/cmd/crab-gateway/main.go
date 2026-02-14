@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,6 +24,7 @@ import (
 	"crabstack.local/projects/crab-gateway/internal/session"
 	"crabstack.local/projects/crab-gateway/internal/subscribers"
 	logging "crabstack.local/projects/crab-gateway/internal/subscribers/logging"
+	"crabstack.local/projects/crab-gateway/internal/subscribers/webhook"
 )
 
 func main() {
@@ -32,6 +35,10 @@ func main() {
 	}
 
 	subs := []subscribers.Subscriber{logging.New(logger)}
+	for idx, webhookURL := range webhookSubscriberURLsFromEnv() {
+		name := webhookSubscriberName(idx, webhookURL)
+		subs = append(subs, webhook.New(name, webhookURL, logger))
+	}
 	dispatcher := dispatch.New(logger, subs)
 	store, err := session.NewGormStore(cfg.DBDriver, cfg.DBDSN)
 	if err != nil {
@@ -139,4 +146,31 @@ func main() {
 	if err := adminSrv.Shutdown(ctx); err != nil {
 		logger.Printf("admin server shutdown error: %v", err)
 	}
+}
+
+func webhookSubscriberURLsFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("CRAB_GATEWAY_WEBHOOK_URLS"))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	urls := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			urls = append(urls, value)
+		}
+	}
+	return urls
+}
+
+func webhookSubscriberName(index int, webhookURL string) string {
+	parsed, err := url.Parse(webhookURL)
+	if err == nil {
+		host := strings.TrimSpace(parsed.Host)
+		if host != "" {
+			return host
+		}
+	}
+	return fmt.Sprintf("webhook-%d", index+1)
 }

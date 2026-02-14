@@ -35,6 +35,7 @@ This project implements the Crabstack gateway runtime:
 - `CRAB_GATEWAY_PAIR_MTLS_CA_FILE` (optional; must be set with cert/key when used)
 - `CRAB_GATEWAY_PAIR_MTLS_CERT_FILE` (optional; must be set with ca/key when used)
 - `CRAB_GATEWAY_PAIR_MTLS_KEY_FILE` (optional; must be set with ca/cert when used)
+- `CRAB_GATEWAY_WEBHOOK_URLS` (default empty; comma-separated webhook subscriber targets)
 
 ## Package map
 - `cmd/crab-gateway`: process bootstrap and wiring.
@@ -48,6 +49,7 @@ This project implements the Crabstack gateway runtime:
 - `internal/gateway`: orchestration service.
 - `internal/dispatch`: async subscriber dispatch with retries.
 - `internal/subscribers`: subscriber contracts and built-in subscribers.
+- `internal/subscribers/webhook`: HTTP webhook subscriber for external event delivery.
 
 ## Implementation invariants
 - Per-session ordering is strict in-process.
