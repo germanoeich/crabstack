@@ -176,6 +176,8 @@ func TestLoginManualFallback(t *testing.T) {
 	assertEqual(t, creds.Provider, "codex", "provider")
 	assertEqual(t, creds.AccountID, "acct_codex_test", "account_id")
 	assertEqual(t, creds.RefreshToken, "refresh_test", "refresh_token")
+	assertEqual(t, creds.ProviderMeta["token_url"], tokenServer.URL, "provider_meta.token_url")
+	assertEqual(t, creds.AccountMeta["chatgpt_account_id"], "acct_codex_test", "account_meta.chatgpt_account_id")
 	assertEqual(t, creds.ExpiresAt.UTC().Format(time.RFC3339), fixedNow.Add(time.Hour).UTC().Format(time.RFC3339), "expires_at")
 	if !strings.Contains(output.String(), "Open this URL in your browser") {
 		t.Fatalf("expected browser URL prompt in output")
@@ -191,6 +193,8 @@ func TestSaveCredentials(t *testing.T) {
 		Provider:     "codex",
 		ClientID:     "client",
 		AccountID:    "acct",
+		ProviderMeta: map[string]string{"authorize_url": "https://auth.example"},
+		AccountMeta:  map[string]string{"chatgpt_account_id": "acct"},
 		AccessToken:  "access",
 		RefreshToken: "refresh",
 		ExpiresAt:    time.Date(2026, 2, 14, 12, 0, 0, 0, time.UTC),
@@ -213,6 +217,8 @@ func TestSaveCredentials(t *testing.T) {
 	}
 	assertEqual(t, decoded.AccountID, "acct", "saved account_id")
 	assertEqual(t, decoded.Provider, "codex", "saved provider")
+	assertEqual(t, decoded.ProviderMeta["authorize_url"], "https://auth.example", "saved provider_meta.authorize_url")
+	assertEqual(t, decoded.AccountMeta["chatgpt_account_id"], "acct", "saved account_meta.chatgpt_account_id")
 }
 
 func TestExtractChatGPTAccountID(t *testing.T) {
