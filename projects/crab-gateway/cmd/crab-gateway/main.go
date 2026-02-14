@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"crabstack.local/projects/crab-gateway/internal/dispatch"
 	"crabstack.local/projects/crab-gateway/internal/gateway"
 	"crabstack.local/projects/crab-gateway/internal/httpapi"
+	"crabstack.local/projects/crab-gateway/internal/model"
 	"crabstack.local/projects/crab-gateway/internal/pairing"
 	"crabstack.local/projects/crab-gateway/internal/session"
 	"crabstack.local/projects/crab-gateway/internal/subscribers"
@@ -40,6 +42,14 @@ func main() {
 			logger.Printf("store close error: %v", err)
 		}
 	}()
+
+	modelRegistry := model.NewRegistry()
+	if apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); apiKey != "" {
+		modelRegistry.Register("anthropic", model.NewAnthropicProvider(apiKey))
+	}
+	if apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); apiKey != "" {
+		modelRegistry.Register("openai", model.NewOpenAIProvider(apiKey))
+	}
 
 	identity, err := pairing.LoadOrCreateIdentity(cfg.KeyDir, cfg.GatewayID)
 	if err != nil {
@@ -80,7 +90,7 @@ func main() {
 		pairing.WithAllowInsecureLoopback(cfg.PairAllowInsecureLoopback),
 	)
 
-	service := gateway.NewService(logger, dispatcher, store)
+	service := gateway.NewService(logger, dispatcher, store, modelRegistry)
 	publicSrv := httpapi.NewServer(logger, cfg.HTTPAddr, service, nil, false)
 	adminSrv := httpapi.NewServer(logger, "unix://"+cfg.AdminSocketPath, service, pairingService, true)
 

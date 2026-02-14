@@ -5,12 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"crabstack.local/lib/types"
 	"crabstack.local/projects/crab-gateway/internal/dispatch"
 	"crabstack.local/projects/crab-gateway/internal/ids"
+	"crabstack.local/projects/crab-gateway/internal/model"
 	"crabstack.local/projects/crab-gateway/internal/session"
+)
+
+const (
+	defaultProviderName = "anthropic"
+	defaultModelName    = "claude-sonnet-4-20250514"
+	defaultMaxTokens    = 4096
+	systemPrompt        = "You are a helpful assistant."
+	historyTurnLimit    = 50
 )
 
 type Service struct {
@@ -18,13 +28,18 @@ type Service struct {
 	dispatcher   *dispatch.Dispatcher
 	scheduler    *session.Scheduler
 	sessionStore session.Store
+	models       *model.Registry
 }
 
-func NewService(logger *log.Logger, dispatcher *dispatch.Dispatcher, sessionStore session.Store) *Service {
+func NewService(logger *log.Logger, dispatcher *dispatch.Dispatcher, sessionStore session.Store, models *model.Registry) *Service {
+	if models == nil {
+		models = model.NewRegistry()
+	}
 	svc := &Service{
 		logger:       logger,
 		dispatcher:   dispatcher,
 		sessionStore: sessionStore,
+		models:       models,
 	}
 	svc.scheduler = session.NewScheduler(logger, 256, svc.processEvent)
 	return svc
@@ -66,7 +81,7 @@ func (s *Service) processEvent(ctx context.Context, inbound types.EventEnvelope)
 		"session_id":        rec.SessionID,
 	}))
 
-	responseEvent, err := s.handleInboundEvent(ctx, inbound)
+	responseEvent, err := s.handleInboundEvent(ctx, inbound, rec.AgentID)
 	if err != nil {
 		_ = s.sessionStore.FailTurn(ctx, turn.TurnID, err.Error())
 		s.dispatcher.Dispatch(ctx, s.lifecycleEvent(inbound, turn.TurnID, types.EventTypeAgentTurnFailed, map[string]any{
@@ -100,19 +115,44 @@ func (s *Service) processEvent(ctx context.Context, inbound types.EventEnvelope)
 	s.logger.Printf("turn complete event_id=%s turn_id=%s session_id=%s", inbound.EventID, turn.TurnID, inbound.Routing.SessionID)
 }
 
-func (s *Service) handleInboundEvent(ctx context.Context, inbound types.EventEnvelope) (*types.EventEnvelope, error) {
+func (s *Service) handleInboundEvent(ctx context.Context, inbound types.EventEnvelope, sessionAgentID string) (*types.EventEnvelope, error) {
 	switch inbound.EventType {
 	case types.EventTypeChannelMessageReceived:
-		return s.handleChannelMessage(ctx, inbound)
+		return s.handleChannelMessage(ctx, inbound, sessionAgentID)
 	default:
 		return nil, nil
 	}
 }
 
-func (s *Service) handleChannelMessage(_ context.Context, inbound types.EventEnvelope) (*types.EventEnvelope, error) {
-	var payload types.ChannelMessageReceivedPayload
-	if err := inbound.DecodePayload(&payload); err != nil {
-		return nil, fmt.Errorf("decode channel message payload: %w", err)
+func (s *Service) handleChannelMessage(ctx context.Context, inbound types.EventEnvelope, sessionAgentID string) (*types.EventEnvelope, error) {
+	turns, err := s.sessionStore.GetTurns(ctx, inbound.TenantID, inbound.Routing.SessionID, 0)
+	if err != nil {
+		return nil, fmt.Errorf("get session turns: %w", err)
+	}
+
+	history, err := buildConversationHistory(turns)
+	if err != nil {
+		return nil, fmt.Errorf("build conversation history: %w", err)
+	}
+
+	providerName, provider, err := s.resolveProvider(sessionAgentID)
+	if err != nil {
+		return nil, err
+	}
+
+	completion, err := provider.Complete(ctx, model.CompletionRequest{
+		Model:        defaultModelName,
+		Messages:     history,
+		MaxTokens:    defaultMaxTokens,
+		SystemPrompt: systemPrompt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("complete with provider %q: %w", providerName, err)
+	}
+
+	responseText := strings.TrimSpace(completion.Content)
+	if responseText == "" {
+		return nil, fmt.Errorf("provider %q returned empty response", providerName)
 	}
 
 	response := types.AgentResponseCreatedPayload{
@@ -120,15 +160,21 @@ func (s *Service) handleChannelMessage(_ context.Context, inbound types.EventEnv
 		Content: []types.AgentResponseContent{
 			{
 				Type: types.AgentResponseContentTypeText,
-				Text: payload.Text,
+				Text: responseText,
 			},
 		},
 		Actions: []types.AgentResponseAction{
 			{
 				Kind: types.AgentResponseActionKindSendMessage,
-				Args: map[string]any{"text": payload.Text},
+				Args: map[string]any{"text": responseText},
 			},
 		},
+	}
+	response.Usage = &types.Usage{
+		InputTokens:  completion.Usage.InputTokens,
+		OutputTokens: completion.Usage.OutputTokens,
+		Model:        completion.Model,
+		Provider:     providerName,
 	}
 
 	data, err := json.Marshal(response)
@@ -156,6 +202,105 @@ func (s *Service) handleChannelMessage(_ context.Context, inbound types.EventEnv
 	}
 
 	return &event, nil
+}
+
+func (s *Service) resolveProvider(agentID string) (string, model.Provider, error) {
+	providerName := strings.TrimSpace(agentID)
+	if providerName == "" {
+		providerName = defaultProviderName
+	}
+
+	if provider, ok := s.models.Get(providerName); ok {
+		return providerName, provider, nil
+	}
+	if !strings.EqualFold(providerName, defaultProviderName) {
+		if provider, ok := s.models.Get(defaultProviderName); ok {
+			return defaultProviderName, provider, nil
+		}
+	}
+	return "", nil, fmt.Errorf("model provider %q is not registered", providerName)
+}
+
+func buildConversationHistory(turns []session.TurnRecord) ([]model.Message, error) {
+	if len(turns) > historyTurnLimit {
+		turns = turns[len(turns)-historyTurnLimit:]
+	}
+
+	messages := make([]model.Message, 0, len(turns)*2)
+	for _, turn := range turns {
+		inbound, err := decodeEvent(turn.InboundEventJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode inbound event for turn %s: %w", turn.TurnID, err)
+		}
+		if inbound.EventType == types.EventTypeChannelMessageReceived {
+			var payload types.ChannelMessageReceivedPayload
+			if err := inbound.DecodePayload(&payload); err != nil {
+				return nil, fmt.Errorf("decode inbound channel message payload for turn %s: %w", turn.TurnID, err)
+			}
+			if strings.TrimSpace(payload.Text) != "" {
+				messages = append(messages, model.Message{Role: model.RoleUser, Content: payload.Text})
+			}
+		}
+
+		if len(turn.ResponseEventJSON) == 0 {
+			continue
+		}
+		responseEvent, err := decodeEvent(turn.ResponseEventJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode response event for turn %s: %w", turn.TurnID, err)
+		}
+		if responseEvent.EventType != types.EventTypeAgentResponseCreated {
+			continue
+		}
+
+		var payload types.AgentResponseCreatedPayload
+		if err := responseEvent.DecodePayload(&payload); err != nil {
+			return nil, fmt.Errorf("decode response payload for turn %s: %w", turn.TurnID, err)
+		}
+		text := assistantText(payload)
+		if text == "" {
+			continue
+		}
+		messages = append(messages, model.Message{Role: model.RoleAssistant, Content: text})
+	}
+
+	return messages, nil
+}
+
+func decodeEvent(raw []byte) (types.EventEnvelope, error) {
+	var event types.EventEnvelope
+	if err := json.Unmarshal(raw, &event); err != nil {
+		return types.EventEnvelope{}, err
+	}
+	return event, nil
+}
+
+func assistantText(payload types.AgentResponseCreatedPayload) string {
+	parts := make([]string, 0, len(payload.Content))
+	for _, content := range payload.Content {
+		if content.Type != types.AgentResponseContentTypeText {
+			continue
+		}
+		if strings.TrimSpace(content.Text) == "" {
+			continue
+		}
+		parts = append(parts, content.Text)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "\n")
+	}
+
+	for _, action := range payload.Actions {
+		if action.Kind != types.AgentResponseActionKindSendMessage {
+			continue
+		}
+		text, _ := action.Args["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (s *Service) lifecycleEvent(inbound types.EventEnvelope, turnID string, eventType types.EventType, payload map[string]any) types.EventEnvelope {

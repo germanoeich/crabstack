@@ -19,6 +19,7 @@ import (
 	"crabstack.local/lib/types"
 	"crabstack.local/projects/crab-gateway/internal/dispatch"
 	"crabstack.local/projects/crab-gateway/internal/gateway"
+	"crabstack.local/projects/crab-gateway/internal/model"
 	"crabstack.local/projects/crab-gateway/internal/pairing"
 	"crabstack.local/projects/crab-gateway/internal/session"
 )
@@ -27,6 +28,21 @@ type fakePairingService struct {
 	result pairing.PairResult
 	err    error
 	seen   pairing.PairRequest
+}
+
+type staticModelProvider struct{}
+
+func (staticModelProvider) Complete(_ context.Context, _ model.CompletionRequest) (model.CompletionResponse, error) {
+	return model.CompletionResponse{
+		Content: "ok",
+		Model:   "claude-sonnet-4-20250514",
+	}, nil
+}
+
+func newModelRegistryForTests() *model.Registry {
+	registry := model.NewRegistry()
+	registry.Register("anthropic", staticModelProvider{})
+	return registry
 }
 
 func (f *fakePairingService) Pair(_ context.Context, req pairing.PairRequest) (pairing.PairResult, error) {
@@ -101,7 +117,7 @@ func TestPairingsRouteDisabledOnPublicServer(t *testing.T) {
 	d := dispatch.New(logger, nil)
 	store := session.NewMemoryStore()
 	t.Cleanup(func() { _ = store.Close() })
-	svc := gateway.NewService(logger, d, store)
+	svc := gateway.NewService(logger, d, store, newModelRegistryForTests())
 	srv := NewServer(logger, ":0", svc, &fakePairingService{}, false)
 
 	body := []byte(`{"component_type":"tool","component_id":"memory-east","endpoint":"ws://10.0.0.1:5225"}`)
@@ -336,7 +352,7 @@ func newTestHandler(t *testing.T, pairingSvc pairing.Service) http.Handler {
 	d := dispatch.New(logger, nil)
 	store := session.NewMemoryStore()
 	t.Cleanup(func() { _ = store.Close() })
-	svc := gateway.NewService(logger, d, store)
+	svc := gateway.NewService(logger, d, store, newModelRegistryForTests())
 	srv := NewServer(logger, ":0", svc, pairingSvc, true)
 	return srv.Handler
 }
