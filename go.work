@@ -2,7 +2,7 @@ go 1.22
 
 use (
 	./integration
-	./lib/types
 	./projects/crab-gateway
 	./projects/crab-cli
+	./projects/crab-sdk
 )

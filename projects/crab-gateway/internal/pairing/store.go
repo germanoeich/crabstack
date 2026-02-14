@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"crabstack.local/lib/types"
 	dbpkg "crabstack.local/projects/crab-gateway/internal/db"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type PeerStore interface {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 func TestPeerAuthorizer_AuthorizeActivePeer(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"crabstack.local/lib/types"
 	"crabstack.local/projects/crab-gateway/internal/subscribers"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type Dispatcher struct {

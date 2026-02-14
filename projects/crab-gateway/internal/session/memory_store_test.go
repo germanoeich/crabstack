@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 func TestMemoryStoreSessionAndTurns(t *testing.T) {

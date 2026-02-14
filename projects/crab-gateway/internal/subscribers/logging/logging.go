@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type Subscriber struct {

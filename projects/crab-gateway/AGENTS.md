@@ -9,7 +9,7 @@ This project implements the Crabstack gateway runtime:
 
 ## Module
 - Go module: `crabstack.local/projects/crab-gateway`
-- Shared types dependency: `crabstack.local/lib/types`
+- Shared types dependency: `crabstack.local/projects/crab-sdk/types`
 
 ## Runtime pipeline
 1. `POST /v1/events` accepts canonical envelope.

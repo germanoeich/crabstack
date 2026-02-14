@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type PeerAuthorizer struct {

@@ -15,8 +15,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"crabstack.local/lib/types"
-	"crabstack.local/projects/crab-cli/internal/protocol"
+	"crabstack.local/projects/crab-sdk/protocol"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 func TestClientConnectSendReceive(t *testing.T) {

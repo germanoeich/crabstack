@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type signedPairInitPayload struct {

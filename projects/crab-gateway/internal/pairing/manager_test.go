@@ -27,7 +27,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 func TestManagerPair_FullFlow(t *testing.T) {

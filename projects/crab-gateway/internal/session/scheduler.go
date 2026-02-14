@@ -6,7 +6,7 @@ import (
 	"log"
 	"sync"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 var ErrSessionQueueFull = errors.New("session queue full")

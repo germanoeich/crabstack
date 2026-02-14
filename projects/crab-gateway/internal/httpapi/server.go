@@ -13,10 +13,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"crabstack.local/lib/types"
 	"crabstack.local/projects/crab-gateway/internal/gateway"
 	"crabstack.local/projects/crab-gateway/internal/pairing"
 	"crabstack.local/projects/crab-gateway/internal/session"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type server struct {

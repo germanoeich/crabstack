@@ -15,8 +15,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"crabstack.local/lib/types"
-	"crabstack.local/projects/crab-cli/internal/protocol"
+	"crabstack.local/projects/crab-sdk/protocol"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 const ioTimeout = 10 * time.Second

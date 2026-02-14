@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type PairGatewayInfoWire struct {

@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"crabstack.local/lib/types"
 	authflow "crabstack.local/projects/crab-cli/internal/auth"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type observedPairRequest struct {

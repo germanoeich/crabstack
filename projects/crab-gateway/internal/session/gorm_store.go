@@ -9,9 +9,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"crabstack.local/lib/types"
 	dbpkg "crabstack.local/projects/crab-gateway/internal/db"
 	"crabstack.local/projects/crab-gateway/internal/ids"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type GormStore struct {

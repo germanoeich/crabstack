@@ -6,7 +6,7 @@ This repository is organized for a modular Go codebase with multiple projects/pa
 ## Repository structure
 - `spec/`: product and protocol specifications.
 - `integration/`: root-level end-to-end tests that exercise multiple modules together.
-- `lib/types/`: standalone shared Go module for protocol/domain types (`module crabstack.local/lib/types`).
+- `projects/crab-sdk/types/`: shared protocol/domain types package (`crabstack.local/projects/crab-sdk/types`).
 - `projects/`: implementation projects/modules (gateway, listeners, services, shared libs, etc).
 - `go.work`: root workspace file to wire local modules together.
 

@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type commandFlag struct {

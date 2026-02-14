@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 func TestSubscriberHandle(t *testing.T) {

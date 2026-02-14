@@ -3,7 +3,7 @@ package subscribers
 import (
 	"context"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type Subscriber interface {

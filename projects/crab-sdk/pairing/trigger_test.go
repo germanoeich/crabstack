@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"crabstack.local/lib/types"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 func TestTriggerGatewayPair(t *testing.T) {

@@ -34,9 +34,9 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - lib/types
           - projects/crab-gateway
           - projects/crab-cli
+          - projects/crab-sdk
     steps:
       - name: Checkout
         uses: actions/checkout@v4

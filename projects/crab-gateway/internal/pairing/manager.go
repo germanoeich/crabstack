@@ -17,8 +17,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"crabstack.local/lib/types"
 	"crabstack.local/projects/crab-gateway/internal/ids"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 const defaultPairTimeout = 15 * time.Second

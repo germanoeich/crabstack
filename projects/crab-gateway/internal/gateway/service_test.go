@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"crabstack.local/lib/types"
 	"crabstack.local/projects/crab-gateway/internal/dispatch"
 	"crabstack.local/projects/crab-gateway/internal/model"
 	"crabstack.local/projects/crab-gateway/internal/session"
 	"crabstack.local/projects/crab-gateway/internal/subscribers"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type collectorSubscriber struct {

@@ -3,11 +3,11 @@ module crabstack.local/projects/crab-gateway
 go 1.22
 
 require (
+	crabstack.local/projects/crab-sdk v0.0.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gorilla/websocket v1.5.3
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/gorm v1.25.12
-	crabstack.local/lib/types v0.0.0
 )
 
 require (
@@ -33,4 +33,4 @@ require (
 	modernc.org/sqlite v1.34.2 // indirect
 )
 
-replace crabstack.local/lib/types => ../../lib/types
+replace crabstack.local/projects/crab-sdk => ../crab-sdk

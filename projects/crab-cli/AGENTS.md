@@ -11,10 +11,10 @@ This project implements a terminal operator client for Crabstack:
 
 ## Module
 - Go module: `crabstack.local/projects/crab-cli`
-- Shared types dependency: `crabstack.local/lib/types`
+- Shared types dependency: `crabstack.local/projects/crab-sdk/types`
 
 ## Implementation notes
-- Follow contracts from `spec/` and types from `lib/types`.
+- Follow contracts from `spec/` and types from `crab-sdk/types`.
 - Pairing messages must remain compatible with v1 structs.
 - Pairing signatures must use canonical payloads that exclude `sig_ed25519`.
 - `pair.init` signature payload must match gateway canonical shape (`gateway_id`, `public_key_ed25519`, `nonce`, `issued_at`) and must not include transport-only fields.

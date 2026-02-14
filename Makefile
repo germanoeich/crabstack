@@ -1,4 +1,4 @@
-GO_MODULE_DIRS := integration lib/types projects/crab-gateway projects/crab-cli
+GO_MODULE_DIRS := integration projects/crab-gateway projects/crab-cli projects/crab-sdk
 
 .PHONY: fmt vet test check
 

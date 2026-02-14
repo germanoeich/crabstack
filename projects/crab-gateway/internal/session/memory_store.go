@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"crabstack.local/lib/types"
 	"crabstack.local/projects/crab-gateway/internal/ids"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 type MemoryStore struct {

@@ -3,11 +3,10 @@ module crabstack.local/projects/crab-cli
 go 1.22
 
 require (
+	crabstack.local/projects/crab-sdk v0.0.0
 	github.com/gdamore/tcell/v2 v2.7.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/rivo/tview v0.0.0-20241227133733-17b7edb88c57
-	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
-	crabstack.local/lib/types v0.0.0
 )
 
 require (
@@ -20,4 +19,4 @@ require (
 	golang.org/x/text v0.14.0 // indirect
 )
 
-replace crabstack.local/lib/types => ../../lib/types
+replace crabstack.local/projects/crab-sdk => ../crab-sdk

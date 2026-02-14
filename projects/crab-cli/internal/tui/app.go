@@ -9,8 +9,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"crabstack.local/lib/types"
 	"crabstack.local/projects/crab-cli/internal/client"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 func Run(ctx context.Context, cfg client.Config) error {

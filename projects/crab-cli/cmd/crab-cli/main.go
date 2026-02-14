@@ -22,11 +22,11 @@ import (
 	"syscall"
 	"time"
 
-	"crabstack.local/lib/types"
 	authflow "crabstack.local/projects/crab-cli/internal/auth"
 	"crabstack.local/projects/crab-cli/internal/client"
-	"crabstack.local/projects/crab-cli/internal/pairing"
 	"crabstack.local/projects/crab-cli/internal/tui"
+	"crabstack.local/projects/crab-sdk/pairing"
+	"crabstack.local/projects/crab-sdk/types"
 )
 
 var (
