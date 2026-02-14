@@ -5,6 +5,7 @@ This project implements a terminal operator client for Crabstack:
 - Trigger gateway-initiated pairing through the admin Unix socket.
 - Provide a dedicated pairing test flow that acts as a temporary remote endpoint for full v1 handshake validation.
 - Send canonical event envelopes to gateway.
+- Perform Codex subscription OAuth login and persist credentials.
 - Receive canonical event envelopes from gateway.
 - Render interaction via a TUI.
 
@@ -29,6 +30,10 @@ This project implements a terminal operator client for Crabstack:
   - `source.platform=cli`
   - `source.channel_id=cli` by default
   - creates a new `session_id` per invocation
+- `crab auth codex` executes subscription OAuth (PKCE + localhost callback + manual fallback):
+  - defaults to OpenAI auth endpoints and fixed client id expected by Codex subscription flow
+  - validates ChatGPT account claim from access token
+  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/codex.json` unless overridden
 - `crab pair test` runs full handshake phases:
   - `pair.init`
   - `pair.identity`
@@ -46,4 +51,5 @@ This project implements a terminal operator client for Crabstack:
 - Pairing handshake flow must be tested against a mock gateway WS server.
 - Client tests must cover both success and failure paths.
 - Pair command tests must cover gateway-admin trigger + CSR handshake completion.
+- OAuth auth tests must cover callback capture, manual fallback parsing, token exchange decoding, and credential persistence.
 - End-to-end gateway+CLI pairing behavior is covered from the root `integration/` module.

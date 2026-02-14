@@ -13,6 +13,8 @@ Terminal UI client for Crabstack pairing + event exchange.
   - `crab pair test`
 - Supports one-shot event send:
   - `crab event send <text>`
+- Supports Codex subscription OAuth login:
+  - `crab auth codex`
 
 ## Pair External Component (Gateway-Initiated)
 From `projects/crab-cli`:
@@ -40,6 +42,20 @@ The `event send` command:
 - Sends one `channel.message.received` envelope to `POST /v1/events`.
 - Uses `source.platform=cli` and `source.channel_id=cli` by default.
 - Creates a new session id per call (`cli-...`) with sensible defaults for tenant/agent/source fields.
+
+## Codex OAuth Login
+From `projects/crab-cli`:
+
+```bash
+crab auth codex
+```
+
+The `auth codex` command:
+- Prints the OpenAI authorize URL.
+- Starts a localhost callback listener (`127.0.0.1:1455` by default).
+- Falls back to manual paste when callback cannot be received.
+- Exchanges the auth code using PKCE.
+- Stores credentials JSON at `~/.crabstack/auth/codex.json` by default (override with `--auth-file` or `CRAB_AUTH_CODEX_FILE`).
 
 ## Pairing Handshake Test
 From `projects/crab-cli`:

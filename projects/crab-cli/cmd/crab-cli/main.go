@@ -23,9 +23,17 @@ import (
 	"time"
 
 	"crabstack.local/lib/types"
+	authflow "crabstack.local/projects/crab-cli/internal/auth"
 	"crabstack.local/projects/crab-cli/internal/client"
 	"crabstack.local/projects/crab-cli/internal/pairing"
 	"crabstack.local/projects/crab-cli/internal/tui"
+)
+
+var (
+	codexLogin                  = authflow.Login
+	codexSaveCredentials        = authflow.SaveCredentials
+	codexDefaultConfig          = authflow.DefaultConfig
+	codexDefaultCredentialsPath = authflow.DefaultCredentialsPath
 )
 
 func main() {
@@ -34,6 +42,11 @@ func main() {
 		case "pair":
 			if err := runPairCommand(os.Args[2:]); err != nil {
 				log.Fatalf("crab pair failed: %v", err)
+			}
+			return
+		case "auth":
+			if err := runAuthCommand(os.Args[2:]); err != nil {
+				log.Fatalf("crab auth failed: %v", err)
 			}
 			return
 		case "event":
@@ -198,6 +211,78 @@ func runPairTestCommand(args []string) error {
 		result.ComponentID,
 		result.Endpoint,
 		result.MTLSCertFingerprint,
+	)
+	return nil
+}
+
+func runAuthCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: crab auth <codex> ...")
+	}
+	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
+	switch subcommand {
+	case "codex":
+		return runAuthCodexCommand(args[1:])
+	default:
+		return fmt.Errorf("unsupported auth subcommand %q (supported: codex)", subcommand)
+	}
+}
+
+func runAuthCodexCommand(args []string) error {
+	defaultCfg := codexDefaultConfig()
+	fs := flag.NewFlagSet("crab auth codex", flag.ContinueOnError)
+	authFile := fs.String("auth-file", envOrDefault("CRAB_AUTH_CODEX_FILE", codexDefaultCredentialsPath()), "output path for codex oauth credentials json")
+	originator := fs.String("originator", envOrDefault("CRAB_AUTH_CODEX_ORIGINATOR", defaultCfg.Originator), "oauth originator parameter")
+	timeout := fs.Duration("timeout", 60*time.Second, "oauth callback wait timeout")
+	authorizeURL := fs.String("authorize-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_AUTHORIZE_URL")), "override oauth authorize url")
+	tokenURL := fs.String("token-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_TOKEN_URL")), "override oauth token url")
+	redirectURL := fs.String("redirect-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_REDIRECT_URL")), "override oauth redirect url")
+	callbackAddr := fs.String("callback-addr", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_CALLBACK_ADDR")), "override local callback listen address")
+	callbackPath := fs.String("callback-path", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_CALLBACK_PATH")), "override local callback path")
+	clientID := fs.String("client-id", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_CLIENT_ID")), "override oauth client id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) > 0 {
+		return fmt.Errorf("usage: crab auth codex [--auth-file <path>] [--originator <value>] [--timeout <duration>]")
+	}
+
+	cfg := defaultCfg
+	cfg.Originator = strings.TrimSpace(*originator)
+	cfg.Timeout = *timeout
+	if v := strings.TrimSpace(*authorizeURL); v != "" {
+		cfg.AuthorizeURL = v
+	}
+	if v := strings.TrimSpace(*tokenURL); v != "" {
+		cfg.TokenURL = v
+	}
+	if v := strings.TrimSpace(*redirectURL); v != "" {
+		cfg.RedirectURL = v
+	}
+	if v := strings.TrimSpace(*callbackAddr); v != "" {
+		cfg.CallbackAddr = v
+	}
+	if v := strings.TrimSpace(*callbackPath); v != "" {
+		cfg.CallbackPath = v
+	}
+	if v := strings.TrimSpace(*clientID); v != "" {
+		cfg.ClientID = v
+	}
+
+	creds, err := codexLogin(context.Background(), cfg, os.Stdin, os.Stdout)
+	if err != nil {
+		return fmt.Errorf("codex oauth login failed: %w", err)
+	}
+	outputPath, err := codexSaveCredentials(strings.TrimSpace(*authFile), creds)
+	if err != nil {
+		return fmt.Errorf("persist codex oauth credentials: %w", err)
+	}
+
+	fmt.Printf(
+		"codex auth complete\naccount_id=%s\nexpires_at=%s\npath=%s\n",
+		creds.AccountID,
+		creds.ExpiresAt.UTC().Format(time.RFC3339),
+		outputPath,
 	)
 	return nil
 }

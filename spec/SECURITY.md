@@ -82,6 +82,20 @@ Notes:
 - `expiring`
 - `reauth_required`
 
+## Codex subscription OAuth bootstrap (CLI)
+- Command: `crab auth codex`
+- Uses OAuth authorization code + PKCE against:
+  - `https://auth.openai.com/oauth/authorize`
+  - `https://auth.openai.com/oauth/token`
+- Uses localhost callback (`127.0.0.1:1455/auth/callback`) with manual paste fallback when callback cannot be received.
+- Persisted credential file contains:
+  - `access_token`
+  - `refresh_token`
+  - `expires_at`
+  - extracted ChatGPT account id claim (`https://api.openai.com/auth.chatgpt_account_id`)
+- Default credential path: `~/.crabstack/auth/codex.json`
+- Credentials file and parent directory must be created with owner-only permissions.
+
 ## Persistence requirements
 - Persist paired remote identity metadata and status.
 - Suggested stored fields:

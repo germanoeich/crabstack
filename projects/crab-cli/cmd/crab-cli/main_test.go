@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"crabstack.local/lib/types"
+	authflow "crabstack.local/projects/crab-cli/internal/auth"
 )
 
 type observedPairRequest struct {
@@ -273,6 +275,109 @@ func TestRunEventCommandValidation(t *testing.T) {
 				t.Fatalf("expected error containing %q, got %v", tc.want, err)
 			}
 		})
+	}
+}
+
+func TestRunAuthCommandValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing subcommand",
+			args: []string{},
+			want: "usage: crab auth <codex>",
+		},
+		{
+			name: "unsupported subcommand",
+			args: []string{"api-key"},
+			want: "unsupported auth subcommand",
+		},
+		{
+			name: "unexpected positional arg",
+			args: []string{"codex", "extra"},
+			want: "usage: crab auth codex",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runAuthCommand(tc.args)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestRunAuthCommandCodex(t *testing.T) {
+	originalLogin := codexLogin
+	originalSave := codexSaveCredentials
+	originalDefaults := codexDefaultConfig
+	originalDefaultPath := codexDefaultCredentialsPath
+	t.Cleanup(func() {
+		codexLogin = originalLogin
+		codexSaveCredentials = originalSave
+		codexDefaultConfig = originalDefaults
+		codexDefaultCredentialsPath = originalDefaultPath
+	})
+
+	fixedNow := time.Date(2026, 2, 14, 1, 2, 3, 0, time.UTC)
+	codexDefaultConfig = func() authflow.Config {
+		cfg := authflow.DefaultConfig()
+		cfg.Now = func() time.Time { return fixedNow }
+		return cfg
+	}
+	codexDefaultCredentialsPath = func() string {
+		return filepath.Join(t.TempDir(), "default-codex.json")
+	}
+
+	var observedLoginConfig authflow.Config
+	codexLogin = func(_ context.Context, cfg authflow.Config, _ io.Reader, _ io.Writer) (authflow.Credentials, error) {
+		observedLoginConfig = cfg
+		return authflow.Credentials{
+			Provider:     "codex",
+			ClientID:     "client_test",
+			AccountID:    "acct_test",
+			AccessToken:  "access",
+			RefreshToken: "refresh",
+			ExpiresAt:    fixedNow.Add(1 * time.Hour),
+			ObtainedAt:   fixedNow,
+		}, nil
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "auth", "codex.json")
+	var savedPath string
+	codexSaveCredentials = func(path string, creds authflow.Credentials) (string, error) {
+		if creds.AccountID != "acct_test" {
+			return "", fmt.Errorf("unexpected account id %q", creds.AccountID)
+		}
+		savedPath = path
+		return path, nil
+	}
+
+	err := runAuthCommand([]string{
+		"codex",
+		"-auth-file", outputPath,
+		"-originator", "pi",
+		"-timeout", "90s",
+	})
+	if err != nil {
+		t.Fatalf("runAuthCommand(codex) failed: %v", err)
+	}
+
+	if observedLoginConfig.Originator != "pi" {
+		t.Fatalf("unexpected originator %q", observedLoginConfig.Originator)
+	}
+	if observedLoginConfig.Timeout != 90*time.Second {
+		t.Fatalf("unexpected timeout %s", observedLoginConfig.Timeout)
+	}
+	if savedPath != outputPath {
+		t.Fatalf("unexpected saved path %q", savedPath)
 	}
 }
 
