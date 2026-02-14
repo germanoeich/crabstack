@@ -34,6 +34,10 @@ This project implements a terminal operator client for Crabstack:
   - defaults to OpenAI auth endpoints and fixed client id expected by Codex subscription flow
   - validates ChatGPT account claim from access token
   - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/codex.json` unless overridden
+- `crab auth claude` executes Anthropic OAuth (PKCE + localhost callback + manual fallback):
+  - supports `--mode max` (authorize via `https://claude.ai/oauth/authorize`, scope `user:inference`) and `--mode console` (authorize via `https://console.anthropic.com/oauth/authorize`, scope `org:create_api_key`)
+  - exchanges code at `https://console.anthropic.com/v1/oauth/token` with shared Anthropic OAuth client id
+  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/claude.json` unless overridden
 - `crab auth anthropic` executes subscription OAuth (PKCE + manual code paste):
   - defaults to Anthropic auth endpoints and fixed client id expected by Claude subscription flow
   - prompts for manual auth code (or redirect URL) after browser approval

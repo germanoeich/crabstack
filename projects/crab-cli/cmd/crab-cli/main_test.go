@@ -287,7 +287,7 @@ func TestRunAuthCommandValidation(t *testing.T) {
 		{
 			name: "missing subcommand",
 			args: []string{},
-			want: "usage: crab auth <codex|anthropic>",
+			want: "usage: crab auth <codex|claude|anthropic>",
 		},
 		{
 			name: "unsupported subcommand",
@@ -303,6 +303,11 @@ func TestRunAuthCommandValidation(t *testing.T) {
 			name: "unexpected positional arg anthropic",
 			args: []string{"anthropic", "extra"},
 			want: "usage: crab auth anthropic",
+		},
+		{
+			name: "unexpected positional arg claude",
+			args: []string{"claude", "extra"},
+			want: "usage: crab auth claude",
 		},
 	}
 
@@ -451,6 +456,84 @@ func TestRunAuthCommandAnthropic(t *testing.T) {
 		t.Fatalf("unexpected scope %q", observedLoginConfig.Scope)
 	}
 	if observedLoginConfig.CallbackAddr != "127.0.0.1:1555" {
+		t.Fatalf("unexpected callback addr %q", observedLoginConfig.CallbackAddr)
+	}
+	if observedLoginConfig.Timeout != 90*time.Second {
+		t.Fatalf("unexpected timeout %s", observedLoginConfig.Timeout)
+	}
+	if savedPath != outputPath {
+		t.Fatalf("unexpected saved path %q", savedPath)
+	}
+}
+
+func TestRunAuthCommandClaude(t *testing.T) {
+	originalLogin := claudeLogin
+	originalSave := claudeSaveCredentials
+	originalDefaults := claudeDefaultConfig
+	originalDefaultPath := claudeDefaultCredentialsPath
+	t.Cleanup(func() {
+		claudeLogin = originalLogin
+		claudeSaveCredentials = originalSave
+		claudeDefaultConfig = originalDefaults
+		claudeDefaultCredentialsPath = originalDefaultPath
+	})
+
+	fixedNow := time.Date(2026, 2, 14, 1, 2, 3, 0, time.UTC)
+	claudeDefaultConfig = func() authflow.ClaudeConfig {
+		cfg := authflow.DefaultClaudeConfig()
+		cfg.Now = func() time.Time { return fixedNow }
+		return cfg
+	}
+	claudeDefaultCredentialsPath = func() string {
+		return filepath.Join(t.TempDir(), "default-claude.json")
+	}
+
+	var observedLoginConfig authflow.ClaudeConfig
+	claudeLogin = func(_ context.Context, cfg authflow.ClaudeConfig, _ io.Reader, _ io.Writer) (authflow.Credentials, error) {
+		observedLoginConfig = cfg
+		return authflow.Credentials{
+			Provider:     "claude",
+			ClientID:     "client_test",
+			AccountID:    "acct_test",
+			AccessToken:  "access",
+			RefreshToken: "refresh",
+			ExpiresAt:    fixedNow.Add(1 * time.Hour),
+			ObtainedAt:   fixedNow,
+		}, nil
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "auth", "claude.json")
+	var savedPath string
+	claudeSaveCredentials = func(path string, creds authflow.Credentials) (string, error) {
+		if creds.Provider != "claude" {
+			return "", fmt.Errorf("unexpected provider %q", creds.Provider)
+		}
+		if creds.AccountID != "acct_test" {
+			return "", fmt.Errorf("unexpected account id %q", creds.AccountID)
+		}
+		savedPath = path
+		return path, nil
+	}
+
+	err := runAuthCommand([]string{
+		"claude",
+		"-auth-file", outputPath,
+		"-mode", "console",
+		"-callback-addr", "127.0.0.1:54545",
+		"-scope", "org:create_api_key",
+		"-timeout", "90s",
+	})
+	if err != nil {
+		t.Fatalf("runAuthCommand(claude) failed: %v", err)
+	}
+
+	if observedLoginConfig.Mode != authflow.ClaudeModeConsole {
+		t.Fatalf("unexpected mode %q", observedLoginConfig.Mode)
+	}
+	if observedLoginConfig.Scope != "org:create_api_key" {
+		t.Fatalf("unexpected scope %q", observedLoginConfig.Scope)
+	}
+	if observedLoginConfig.CallbackAddr != "127.0.0.1:54545" {
 		t.Fatalf("unexpected callback addr %q", observedLoginConfig.CallbackAddr)
 	}
 	if observedLoginConfig.Timeout != 90*time.Second {
