@@ -1,14 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
+	cryptorand "crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -28,6 +34,11 @@ func main() {
 		case "pair":
 			if err := runPairCommand(os.Args[2:]); err != nil {
 				log.Fatalf("crab pair failed: %v", err)
+			}
+			return
+		case "event":
+			if err := runEventCommand(os.Args[2:]); err != nil {
+				log.Fatalf("crab event failed: %v", err)
 			}
 			return
 		}
@@ -82,7 +93,7 @@ func configFromFlags(args []string) (client.Config, error) {
 
 func runPairCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: crab pair <test|tool|subscriber> ...")
+		return fmt.Errorf("usage: crab pair <test|tool|subscriber|cli> ...")
 	}
 
 	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
@@ -93,8 +104,10 @@ func runPairCommand(args []string) error {
 		return runPairTargetCommand("tool", types.ComponentTypeToolHost, args[1:])
 	case "subscriber":
 		return runPairTargetCommand("subscriber", types.ComponentTypeSubscriber, args[1:])
+	case "cli":
+		return runPairTargetCommand("cli", types.ComponentTypeOperator, args[1:])
 	default:
-		return fmt.Errorf("unsupported pair subcommand %q (supported: test, tool, subscriber)", subcommand)
+		return fmt.Errorf("unsupported pair subcommand %q (supported: test, tool, subscriber, cli)", subcommand)
 	}
 }
 
@@ -189,6 +202,149 @@ func runPairTestCommand(args []string) error {
 	return nil
 }
 
+func runEventCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: crab event <send> ...")
+	}
+	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
+	switch subcommand {
+	case "send":
+		return runEventSendCommand(args[1:])
+	default:
+		return fmt.Errorf("unsupported event subcommand %q (supported: send)", subcommand)
+	}
+}
+
+func runEventSendCommand(args []string) error {
+	fs := flag.NewFlagSet("crab event send", flag.ContinueOnError)
+	gatewayHTTP := fs.String("gateway-http", envOrDefault("CRAB_CLI_GATEWAY_HTTP_URL", "http://127.0.0.1:8080"), "gateway HTTP base URL")
+	tenantID := fs.String("tenant-id", envOrDefault("CRAB_CLI_TENANT_ID", "local"), "tenant id")
+	agentID := fs.String("agent-id", envOrDefault("CRAB_CLI_AGENT_ID", "assistant"), "agent id")
+	componentID := fs.String("component-id", envOrDefault("CRAB_CLI_COMPONENT_ID", hostnameOrDefault("crab-cli")), "component id")
+	channelID := fs.String("channel-id", envOrDefault("CRAB_CLI_CHANNEL_ID", "cli"), "channel id")
+	actorID := fs.String("actor-id", envOrDefault("CRAB_CLI_ACTOR_ID", "operator"), "actor id")
+	timeout := fs.Duration("timeout", 10*time.Second, "request timeout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if text == "" {
+		return fmt.Errorf("usage: crab event send [flags] <text>")
+	}
+
+	eventsURL, err := normalizeGatewayEventsURL(strings.TrimSpace(*gatewayHTTP))
+	if err != nil {
+		return err
+	}
+
+	payload, err := json.Marshal(types.ChannelMessageReceivedPayload{Text: text})
+	if err != nil {
+		return fmt.Errorf("marshal channel message payload: %w", err)
+	}
+
+	sessionID := "cli-" + newHexID()
+	event := types.EventEnvelope{
+		Version:    types.VersionV1,
+		EventID:    newHexID(),
+		TraceID:    newHexID(),
+		OccurredAt: time.Now().UTC(),
+		EventType:  types.EventTypeChannelMessageReceived,
+		TenantID:   strings.TrimSpace(*tenantID),
+		Source: types.EventSource{
+			ComponentType: types.ComponentTypeOperator,
+			ComponentID:   strings.TrimSpace(*componentID),
+			Platform:      "cli",
+			ChannelID:     strings.TrimSpace(*channelID),
+			ActorID:       strings.TrimSpace(*actorID),
+			Transport:     types.TransportTypeHTTP,
+		},
+		Routing: types.EventRouting{
+			AgentID:   strings.TrimSpace(*agentID),
+			SessionID: sessionID,
+		},
+		Payload: payload,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+
+	resultEventID, err := sendEvent(ctx, eventsURL, event)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf(
+		"event sent\nsession_id=%s\nevent_id=%s\n",
+		sessionID,
+		resultEventID,
+	)
+	return nil
+}
+
+func normalizeGatewayEventsURL(raw string) (string, error) {
+	if raw == "" {
+		return "", fmt.Errorf("gateway-http is required")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid gateway-http url: %w", err)
+	}
+	if strings.TrimSpace(parsed.Scheme) == "" || strings.TrimSpace(parsed.Host) == "" {
+		return "", fmt.Errorf("gateway-http must include scheme and host")
+	}
+	if strings.TrimSpace(parsed.Path) == "" || parsed.Path == "/" {
+		parsed.Path = "/v1/events"
+	}
+	return parsed.String(), nil
+}
+
+func sendEvent(ctx context.Context, eventsURL string, event types.EventEnvelope) (string, error) {
+	body, err := json.Marshal(event)
+	if err != nil {
+		return "", fmt.Errorf("marshal event envelope: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, eventsURL, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build events request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("send event request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("read events response: %w", err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		msg := strings.TrimSpace(string(respBody))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return "", fmt.Errorf("gateway rejected event: %s", msg)
+	}
+
+	var result struct {
+		Accepted bool   `json:"accepted"`
+		EventID  string `json:"event_id"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("decode events response: %w", err)
+	}
+	if !result.Accepted {
+		return "", fmt.Errorf("gateway did not accept event")
+	}
+	if strings.TrimSpace(result.EventID) == "" {
+		return "", fmt.Errorf("gateway response missing event_id")
+	}
+	return result.EventID, nil
+}
+
 func resolveGatewayPublicKey(flagValue string) (string, error) {
 	key := strings.TrimSpace(flagValue)
 	if key != "" {
@@ -246,4 +402,12 @@ func hostnameOrDefault(fallback string) string {
 		return fallback
 	}
 	return hostname
+}
+
+func newHexID() string {
+	buf := make([]byte, 16)
+	if _, err := cryptorand.Read(buf); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(buf)
 }

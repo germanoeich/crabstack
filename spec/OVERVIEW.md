@@ -57,6 +57,11 @@ Crabstack is a modular Go toolkit for running personal/micro-group LLM agents ac
 
 - `crab-cli` (operator-side)
 - Uses gateway admin Unix socket for control-plane actions.
+- Supports one-shot event ingress for local/remote CLI chat:
+  - `crab event send <text>`
+  - posts `channel.message.received` to gateway `POST /v1/events`
+  - defaults source platform/channel to `cli`
+  - creates a new session id per invocation
 - `crab pair` command grammar:
   - `crab pair test [--admin-socket <path>]`
   - `crab pair tool <endpoint> <name> [--admin-socket <path>]`

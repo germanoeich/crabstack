@@ -18,13 +18,17 @@ This project implements a terminal operator client for Crabstack:
 - Pairing signatures must use canonical payloads that exclude `sig_ed25519`.
 - `pair.init` signature payload must match gateway canonical shape (`gateway_id`, `public_key_ed25519`, `nonce`, `issued_at`) and must not include transport-only fields.
 - Event transport must use `types.EventEnvelope`.
-- `crab pair tool <endpoint> <name>` and `crab pair subscriber <endpoint> <name>` are gateway-trigger-only:
+- `crab pair tool <endpoint> <name>`, `crab pair subscriber <endpoint> <name>`, and `crab pair cli <endpoint> <name>` are gateway-trigger-only:
   - send `POST /v1/pairings` over admin socket
   - map command to request:
-    - `component_type` from subcommand (`tool_host` / `subscriber`)
+    - `component_type` from subcommand (`tool_host` / `subscriber` / `operator`)
     - `component_id` from positional `<name>`
     - `endpoint` from positional `<endpoint>`
   - never host a local websocket endpoint
+- `crab event send <text>` sends one `channel.message.received` envelope to `POST /v1/events`:
+  - `source.platform=cli`
+  - `source.channel_id=cli` by default
+  - creates a new `session_id` per invocation
 - `crab pair test` runs full handshake phases:
   - `pair.init`
   - `pair.identity`

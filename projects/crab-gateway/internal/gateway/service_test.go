@@ -162,3 +162,65 @@ func TestServiceProcessEvent_InvalidPayloadEmitsFailed(t *testing.T) {
 		t.Fatalf("expected failed turn status, got %s", turns[0].Status)
 	}
 }
+
+func TestServiceProcessEvent_CLIMessageTracksCLIChannel(t *testing.T) {
+	logger := log.New(os.Stdout, "", 0)
+	collector := &collectorSubscriber{events: make(chan types.EventEnvelope, 8)}
+	d := dispatch.New(logger, []subscribers.Subscriber{collector})
+	store := session.NewMemoryStore()
+	defer func() { _ = store.Close() }()
+	svc := NewService(logger, d, store)
+
+	payload, err := json.Marshal(types.ChannelMessageReceivedPayload{Text: "hello cli"})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	inbound := types.EventEnvelope{
+		Version:    types.VersionV1,
+		EventID:    "evt_cli_1",
+		TraceID:    "trace_cli_1",
+		OccurredAt: time.Now().UTC(),
+		EventType:  types.EventTypeChannelMessageReceived,
+		TenantID:   "tenant_cli",
+		Source: types.EventSource{
+			ComponentType: types.ComponentTypeOperator,
+			ComponentID:   "crab-cli-1",
+			Platform:      "cli",
+			ChannelID:     "cli",
+			ActorID:       "operator",
+			Transport:     types.TransportTypeHTTP,
+		},
+		Routing: types.EventRouting{
+			AgentID:   "agent_cli",
+			SessionID: "session_cli_1",
+		},
+		Payload: payload,
+	}
+
+	svc.processEvent(context.Background(), inbound)
+
+	seenResponse := false
+	deadline := time.After(2 * time.Second)
+	for !seenResponse {
+		select {
+		case event := <-collector.events:
+			if event.EventType == types.EventTypeAgentResponseCreated {
+				seenResponse = true
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for response event")
+		}
+	}
+
+	sessionRec, err := store.GetSession(context.Background(), "tenant_cli", "session_cli_1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sessionRec.LastActivePlatform != "cli" {
+		t.Fatalf("expected last active platform cli, got %q", sessionRec.LastActivePlatform)
+	}
+	if sessionRec.LastActiveChannelID != "cli" {
+		t.Fatalf("expected last active channel cli, got %q", sessionRec.LastActiveChannelID)
+	}
+}

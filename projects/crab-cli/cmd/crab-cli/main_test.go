@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"crabstack.local/lib/types"
 )
 
 type observedPairRequest struct {
@@ -94,6 +97,43 @@ func TestRunPairCommandSubscriber(t *testing.T) {
 	}
 }
 
+func TestRunPairCommandCLI(t *testing.T) {
+	adminSocket := startAdminPairServer(t, func(req observedPairRequest) (int, map[string]any) {
+		if req.ComponentType != "operator" {
+			return http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("unexpected component_type %q", req.ComponentType)}
+		}
+		if req.ComponentID != "laptop-admin" {
+			return http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("unexpected component_id %q", req.ComponentID)}
+		}
+		if req.Endpoint != "wss://10.0.0.3:7443/v1/pair" {
+			return http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("unexpected endpoint %q", req.Endpoint)}
+		}
+		return http.StatusOK, map[string]any{
+			"pairing_id": "pair_cli_1",
+			"endpoint":   req.Endpoint,
+			"peer": map[string]any{
+				"component_type":        "operator",
+				"component_id":          "laptop-admin",
+				"mtls_cert_fingerprint": "sha256:cli",
+				"status":                "active",
+				"paired_at":             time.Now().UTC().Format(time.RFC3339Nano),
+				"last_seen_at":          time.Now().UTC().Format(time.RFC3339Nano),
+				"endpoint":              req.Endpoint,
+			},
+		}
+	})
+
+	err := runPairCommand([]string{
+		"cli",
+		"-admin-socket", adminSocket,
+		"wss://10.0.0.3:7443/v1/pair",
+		"laptop-admin",
+	})
+	if err != nil {
+		t.Fatalf("runPairCommand(cli) failed: %v", err)
+	}
+}
+
 func TestRunPairCommandValidation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -103,7 +143,7 @@ func TestRunPairCommandValidation(t *testing.T) {
 		{
 			name: "missing subcommand",
 			args: []string{},
-			want: "usage: crab pair <test|tool|subscriber>",
+			want: "usage: crab pair <test|tool|subscriber|cli>",
 		},
 		{
 			name: "unsupported subcommand",
@@ -120,6 +160,112 @@ func TestRunPairCommandValidation(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			err := runPairCommand(tc.args)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestRunEventCommandSend(t *testing.T) {
+	received := make(chan types.EventEnvelope, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/v1/events" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		var event types.EventEnvelope
+		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+			http.Error(w, fmt.Sprintf("invalid json: %v", err), http.StatusBadRequest)
+			return
+		}
+		received <- event
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"accepted": true,
+			"event_id": event.EventID,
+		})
+	}))
+	defer server.Close()
+
+	err := runEventCommand([]string{
+		"send",
+		"-gateway-http", server.URL,
+		"-tenant-id", "tenant_cli",
+		"-agent-id", "agent_cli",
+		"-component-id", "cli_sender",
+		"-channel-id", "cli",
+		"-actor-id", "gin",
+		"hello from cli",
+	})
+	if err != nil {
+		t.Fatalf("runEventCommand(send) failed: %v", err)
+	}
+
+	select {
+	case event := <-received:
+		if event.EventType != types.EventTypeChannelMessageReceived {
+			t.Fatalf("unexpected event_type %s", event.EventType)
+		}
+		if event.Source.ComponentType != types.ComponentTypeOperator {
+			t.Fatalf("unexpected source.component_type %s", event.Source.ComponentType)
+		}
+		if event.Source.Platform != "cli" {
+			t.Fatalf("unexpected source.platform %q", event.Source.Platform)
+		}
+		if event.Source.ChannelID != "cli" {
+			t.Fatalf("unexpected source.channel_id %q", event.Source.ChannelID)
+		}
+		if !strings.HasPrefix(event.Routing.SessionID, "cli-") {
+			t.Fatalf("expected auto session id with cli- prefix, got %q", event.Routing.SessionID)
+		}
+		var payload types.ChannelMessageReceivedPayload
+		if err := event.DecodePayload(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.Text != "hello from cli" {
+			t.Fatalf("unexpected payload text %q", payload.Text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for event payload")
+	}
+}
+
+func TestRunEventCommandValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing subcommand",
+			args: []string{},
+			want: "usage: crab event <send>",
+		},
+		{
+			name: "unsupported subcommand",
+			args: []string{"list"},
+			want: "unsupported event subcommand",
+		},
+		{
+			name: "missing text",
+			args: []string{"send"},
+			want: "usage: crab event send",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runEventCommand(tc.args)
 			if err == nil {
 				t.Fatalf("expected error")
 			}

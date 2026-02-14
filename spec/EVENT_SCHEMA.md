@@ -93,7 +93,7 @@ This defines the canonical envelope every module uses (gateway, listeners, subsc
         },
         "platform": {
           "type": "string",
-          "description": "discord, whatsapp, slack, etc"
+          "description": "discord, whatsapp, slack, cli, etc"
         },
         "channel_id": {
           "type": "string"

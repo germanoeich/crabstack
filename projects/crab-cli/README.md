@@ -9,7 +9,10 @@ Terminal UI client for Crabstack pairing + event exchange.
 - Supports gateway-initiated pairing commands:
   - `crab pair tool <endpoint> <name>`
   - `crab pair subscriber <endpoint> <name>`
+  - `crab pair cli <endpoint> <name>`
   - `crab pair test`
+- Supports one-shot event send:
+  - `crab event send <text>`
 
 ## Pair External Component (Gateway-Initiated)
 From `projects/crab-cli`:
@@ -17,13 +20,26 @@ From `projects/crab-cli`:
 ```bash
 crab pair tool wss://10.0.0.1:5225/v1/pair memory-east
 crab pair subscriber wss://10.0.0.2:7443/v1/pair discord-outbound
+crab pair cli wss://10.0.0.3:7443/v1/pair laptop-admin
 ```
 
-The `pair tool` / `pair subscriber` commands:
+The `pair tool` / `pair subscriber` / `pair cli` commands:
 - Calls gateway admin Unix socket `POST /v1/pairings`.
 - Sends `component_type` from subcommand and `component_id` from `<name>`.
 - Does not host a local websocket endpoint.
 - Prints `pairing_id`, endpoint, resolved component identity, and certificate fingerprint.
+
+## Send Event
+From `projects/crab-cli`:
+
+```bash
+crab event send "hello from cli"
+```
+
+The `event send` command:
+- Sends one `channel.message.received` envelope to `POST /v1/events`.
+- Uses `source.platform=cli` and `source.channel_id=cli` by default.
+- Creates a new session id per call (`cli-...`) with sensible defaults for tenant/agent/source fields.
 
 ## Pairing Handshake Test
 From `projects/crab-cli`:

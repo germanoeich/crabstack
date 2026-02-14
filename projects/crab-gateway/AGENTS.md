@@ -60,6 +60,7 @@ This project implements the Crabstack gateway runtime:
 - HTTP/WS are adapters only; handshake/state logic must not live in handler code.
 - Public HTTP ingress does not expose pairing routes.
 - Pairing trigger routes are exposed on the admin Unix socket transport and require no auth on that local transport.
+- `POST /v1/events` accepts channel-message ingress from `source.component_type=operator` (paired/local CLI use-cases), including `source.platform=cli`.
 - Pairing persistence must be success-only: existing active peers cannot be downgraded during a failed re-pair attempt.
 - Peer activation persistence occurs only after `pair.complete` is successfully sent.
 - `pair.challenge_response.version` must be validated against supported protocol version(s) before activation.
