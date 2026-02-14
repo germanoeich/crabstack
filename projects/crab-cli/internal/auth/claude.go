@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +24,8 @@ const (
 	claudeMaxScope            = "user:inference"
 	claudeConsoleScope        = "org:create_api_key"
 	claudeDefaultTimeout      = 60 * time.Second
+	claudeSetupTokenPrefix    = "sk-ant-oat01-"
+	claudeSetupTokenMinLength = 80
 )
 
 type ClaudeMode string
@@ -43,6 +47,7 @@ type ClaudeConfig struct {
 	Timeout      time.Duration
 	HTTPClient   *http.Client
 	Now          func() time.Time
+	SetupToken   string
 }
 
 func DefaultClaudeConfig() ClaudeConfig {
@@ -78,68 +83,42 @@ func LoginClaude(ctx context.Context, cfg ClaudeConfig, input io.Reader, output 
 		return Credentials{}, err
 	}
 
-	codeVerifier, codeChallenge, err := generatePKCE()
-	if err != nil {
-		return Credentials{}, fmt.Errorf("generate pkce: %w", err)
-	}
-	state, err := randomBase64URL(32)
-	if err != nil {
-		return Credentials{}, fmt.Errorf("generate oauth state: %w", err)
-	}
-	authURL, err := buildClaudeAuthorizeURL(cfg, codeChallenge, state)
-	if err != nil {
-		return Credentials{}, err
+	setupToken := strings.TrimSpace(cfg.SetupToken)
+	tokenSource := "manual"
+	if setupToken != "" {
+		tokenSource = "configured"
 	}
 
-	_, _ = fmt.Fprintf(output, "Open this URL in your browser:\n%s\n", authURL)
-
-	code, err := waitForCallbackCode(ctx, Config{
-		CallbackAddr: cfg.CallbackAddr,
-		CallbackPath: cfg.CallbackPath,
-		Timeout:      cfg.Timeout,
-	}, state, output)
-	if err != nil {
-		_, _ = fmt.Fprintf(output, "Local callback unavailable: %v\n", err)
-		code, err = promptForManualCode(input, output, state)
+	if setupToken == "" {
+		token, err := promptForClaudeSetupToken(input, output)
 		if err != nil {
-			return Credentials{}, fmt.Errorf("obtain authorization code: %w", err)
+			return Credentials{}, fmt.Errorf("obtain claude setup-token: %w", err)
 		}
+		setupToken = token
 	}
-
-	token, rawToken, err := exchangeClaudeAuthorizationCode(ctx, cfg, code, codeVerifier)
-	if err != nil {
+	if err := validateClaudeSetupToken(setupToken); err != nil {
 		return Credentials{}, err
-	}
-
-	account := extractAnthropicAccountMetadata(token.AccessToken, rawToken)
-	accountID := strings.TrimSpace(account.AccountID)
-	if accountID == "" {
-		accountID = "unknown"
 	}
 
 	now := cfg.Now().UTC()
 	creds := Credentials{
-		Provider:     "claude",
-		ClientID:     cfg.ClientID,
-		AccountID:    accountID,
-		AccountEmail: account.Email,
-		AccountName:  account.Name,
+		Provider:  "claude",
+		ClientID:  cfg.ClientID,
+		AccountID: "unknown",
 		ProviderMeta: map[string]string{
-			"mode":          string(cfg.Mode),
-			"authorize_url": cfg.AuthorizeURL,
-			"token_url":     cfg.TokenURL,
-			"redirect_url":  cfg.RedirectURL,
+			"mode":         string(cfg.Mode),
+			"flow":         "setup-token",
+			"token_source": tokenSource,
 		},
-		AccountMeta:  account.Meta,
-		AccessToken:  token.AccessToken,
-		RefreshToken: token.RefreshToken,
-		TokenType:    token.TokenType,
-		Scope:        token.Scope,
+		AccountMeta: map[string]string{
+			"token_prefix": claudeSetupTokenPrefix,
+		},
+		AccessToken:  setupToken,
+		RefreshToken: setupToken,
+		TokenType:    "bearer",
+		Scope:        "setup-token",
 		ObtainedAt:   now,
-		ExpiresAt:    now.Add(time.Duration(token.ExpiresIn) * time.Second),
-	}
-	if strings.TrimSpace(creds.Scope) == "" {
-		creds.Scope = cfg.Scope
+		ExpiresAt:    now.Add(365 * 24 * time.Hour),
 	}
 	return creds, nil
 }
@@ -327,4 +306,35 @@ func defaultClaudeScope(mode ClaudeMode) string {
 	default:
 		return claudeMaxScope
 	}
+}
+
+func validateClaudeSetupToken(raw string) error {
+	token := strings.TrimSpace(raw)
+	if token == "" {
+		return fmt.Errorf("setup-token is required")
+	}
+	if !strings.HasPrefix(token, claudeSetupTokenPrefix) {
+		return fmt.Errorf("expected setup-token starting with %s", claudeSetupTokenPrefix)
+	}
+	if len(token) < claudeSetupTokenMinLength {
+		return fmt.Errorf("setup-token looks too short; paste the full token")
+	}
+	return nil
+}
+
+func promptForClaudeSetupToken(input io.Reader, output io.Writer) (string, error) {
+	if input == nil {
+		return "", fmt.Errorf("manual input reader is required")
+	}
+	reader := bufio.NewReader(input)
+	_, _ = fmt.Fprint(output, "Paste Anthropic setup-token: ")
+	line, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("read setup-token: %w", err)
+	}
+	token := strings.TrimSpace(line)
+	if token == "" {
+		return "", fmt.Errorf("setup-token is required")
+	}
+	return token, nil
 }

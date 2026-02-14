@@ -242,6 +242,56 @@ func TestRunEventCommandSend(t *testing.T) {
 	}
 }
 
+func TestRunEventCommandSendUsesGatewayHTTPEnv(t *testing.T) {
+	received := make(chan types.EventEnvelope, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/v1/events" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		var event types.EventEnvelope
+		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+			http.Error(w, fmt.Sprintf("invalid json: %v", err), http.StatusBadRequest)
+			return
+		}
+		received <- event
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"accepted": true,
+			"event_id": event.EventID,
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("CRAB_CLI_GATEWAY_HTTP_URL", server.URL)
+	err := runEventCommand([]string{
+		"send",
+		"env-backed send",
+	})
+	if err != nil {
+		t.Fatalf("runEventCommand(send) failed: %v", err)
+	}
+
+	select {
+	case event := <-received:
+		var payload types.ChannelMessageReceivedPayload
+		if err := event.DecodePayload(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.Text != "env-backed send" {
+			t.Fatalf("unexpected payload text %q", payload.Text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for event payload")
+	}
+}
+
 func TestRunEventCommandValidation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -373,14 +423,13 @@ func TestRunAuthCommandCodex(t *testing.T) {
 	err := runAuthCommand([]string{
 		"codex",
 		"-auth-file", outputPath,
-		"-originator", "pi",
 		"-timeout", "90s",
 	})
 	if err != nil {
 		t.Fatalf("runAuthCommand(codex) failed: %v", err)
 	}
 
-	if observedLoginConfig.Originator != "pi" {
+	if observedLoginConfig.Originator != authflow.DefaultConfig().Originator {
 		t.Fatalf("unexpected originator %q", observedLoginConfig.Originator)
 	}
 	if observedLoginConfig.Timeout != 90*time.Second {
@@ -444,18 +493,16 @@ func TestRunAuthCommandAnthropic(t *testing.T) {
 	err := runAuthCommand([]string{
 		"anthropic",
 		"-auth-file", outputPath,
-		"-callback-addr", "127.0.0.1:1555",
-		"-scope", "user:profile user:inference",
 		"-timeout", "90s",
 	})
 	if err != nil {
 		t.Fatalf("runAuthCommand(anthropic) failed: %v", err)
 	}
 
-	if observedLoginConfig.Scope != "user:profile user:inference" {
+	if observedLoginConfig.Scope != authflow.DefaultAnthropicConfig().Scope {
 		t.Fatalf("unexpected scope %q", observedLoginConfig.Scope)
 	}
-	if observedLoginConfig.CallbackAddr != "127.0.0.1:1555" {
+	if observedLoginConfig.CallbackAddr != authflow.DefaultAnthropicConfig().CallbackAddr {
 		t.Fatalf("unexpected callback addr %q", observedLoginConfig.CallbackAddr)
 	}
 	if observedLoginConfig.Timeout != 90*time.Second {
@@ -519,8 +566,6 @@ func TestRunAuthCommandClaude(t *testing.T) {
 		"claude",
 		"-auth-file", outputPath,
 		"-mode", "console",
-		"-callback-addr", "127.0.0.1:54545",
-		"-scope", "org:create_api_key",
 		"-timeout", "90s",
 	})
 	if err != nil {
@@ -530,10 +575,10 @@ func TestRunAuthCommandClaude(t *testing.T) {
 	if observedLoginConfig.Mode != authflow.ClaudeModeConsole {
 		t.Fatalf("unexpected mode %q", observedLoginConfig.Mode)
 	}
-	if observedLoginConfig.Scope != "org:create_api_key" {
+	if observedLoginConfig.Scope != authflow.DefaultClaudeConfig().Scope {
 		t.Fatalf("unexpected scope %q", observedLoginConfig.Scope)
 	}
-	if observedLoginConfig.CallbackAddr != "127.0.0.1:54545" {
+	if observedLoginConfig.CallbackAddr != authflow.DefaultClaudeConfig().CallbackAddr {
 		t.Fatalf("unexpected callback addr %q", observedLoginConfig.CallbackAddr)
 	}
 	if observedLoginConfig.Timeout != 90*time.Second {

@@ -28,7 +28,7 @@ const (
 	defaultCallbackAddr = "127.0.0.1:1455"
 	defaultCallbackPath = "/auth/callback"
 	defaultScope        = "openid profile email offline_access"
-	defaultOriginator   = "pi"
+	defaultOriginator   = "crabstack"
 	defaultTimeout      = 60 * time.Second
 )
 
@@ -68,6 +68,7 @@ type tokenResponse struct {
 	TokenType    string         `json:"token_type"`
 	Scope        string         `json:"scope"`
 	ExpiresIn    int64          `json:"expires_in"`
+	IDToken      string         `json:"id_token,omitempty"`
 	Account      map[string]any `json:"account,omitempty"`
 }
 
@@ -130,7 +131,7 @@ func Login(ctx context.Context, cfg Config, input io.Reader, output io.Writer) (
 		return Credentials{}, err
 	}
 
-	accountID, err := extractChatGPTAccountID(token.AccessToken)
+	accountID, err := extractChatGPTAccountID(token)
 	if err != nil {
 		return Credentials{}, err
 	}
@@ -489,26 +490,118 @@ func exchangeAuthorizationCode(ctx context.Context, cfg Config, code, codeVerifi
 	return token, nil
 }
 
-func extractChatGPTAccountID(accessToken string) (string, error) {
-	parts := strings.Split(accessToken, ".")
-	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid access token format")
+func extractChatGPTAccountID(token tokenResponse) (string, error) {
+	for _, rawJWT := range []string{token.AccessToken, token.IDToken} {
+		claims, err := parseJWTClaims(rawJWT)
+		if err != nil {
+			continue
+		}
+		if accountID := accountIDFromClaims(claims); accountID != "" {
+			return accountID, nil
+		}
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+
+	if accountID := accountIDFromMap(token.Account); accountID != "" {
+		return accountID, nil
+	}
+
+	return "", fmt.Errorf("access token missing chatgpt account id claim")
+}
+
+func parseJWTClaims(rawJWT string) (map[string]any, error) {
+	rawJWT = strings.TrimSpace(rawJWT)
+	if rawJWT == "" {
+		return nil, fmt.Errorf("jwt is empty")
+	}
+	parts := strings.Split(rawJWT, ".")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid jwt format")
+	}
+	payload, err := decodeJWTPayload(parts[1])
 	if err != nil {
-		return "", fmt.Errorf("decode access token payload: %w", err)
+		return nil, fmt.Errorf("decode jwt payload: %w", err)
 	}
 
 	var claims map[string]any
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", fmt.Errorf("decode access token claims: %w", err)
+		return nil, fmt.Errorf("decode jwt claims: %w", err)
 	}
-	accountID, _ := claims["https://api.openai.com/auth.chatgpt_account_id"].(string)
-	accountID = strings.TrimSpace(accountID)
-	if accountID == "" {
-		return "", fmt.Errorf("access token missing chatgpt account id claim")
+	return claims, nil
+}
+
+func decodeJWTPayload(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("jwt payload is empty")
 	}
-	return accountID, nil
+	if payload, err := base64.RawURLEncoding.DecodeString(raw); err == nil {
+		return payload, nil
+	}
+	if payload, err := base64.URLEncoding.DecodeString(raw); err == nil {
+		return payload, nil
+	}
+	if payload, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		return payload, nil
+	}
+	return nil, fmt.Errorf("unsupported jwt payload encoding")
+}
+
+func accountIDFromClaims(claims map[string]any) string {
+	if claims == nil {
+		return ""
+	}
+	for _, key := range []string{
+		"https://api.openai.com/auth.chatgpt_account_id",
+		"https://api.openai.com/auth/chatgpt_account_id",
+		"chatgpt_account_id",
+		"account_id",
+	} {
+		if value, ok := claims[key].(string); ok {
+			if accountID := strings.TrimSpace(value); accountID != "" {
+				return accountID
+			}
+		}
+	}
+	if authClaims, ok := claims["https://api.openai.com/auth"].(map[string]any); ok {
+		if accountID := accountIDFromMap(authClaims); accountID != "" {
+			return accountID
+		}
+	}
+	if accountID := accountIDFromMap(claims); accountID != "" {
+		return accountID
+	}
+	return ""
+}
+
+func accountIDFromMap(data map[string]any) string {
+	if data == nil {
+		return ""
+	}
+	for _, key := range []string{
+		"chatgpt_account_id",
+		"account_id",
+		"id",
+	} {
+		if value, ok := data[key].(string); ok {
+			if accountID := strings.TrimSpace(value); accountID != "" {
+				return accountID
+			}
+		}
+	}
+	if organizations, ok := data["organizations"].([]any); ok {
+		for _, orgRaw := range organizations {
+			org, ok := orgRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if value, ok := org["id"].(string); ok {
+				if accountID := strings.TrimSpace(value); accountID != "" {
+					return accountID
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func generatePKCE() (string, string, error) {

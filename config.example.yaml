@@ -1,0 +1,51 @@
+# Crabstack configuration template
+# Documents currently supported runtime keys and defaults.
+# Note: binaries do not auto-load this YAML yet.
+
+version: 1
+
+gateway:
+  http_addr: ":8080" # CRAB_GATEWAY_HTTP_ADDR
+  db_driver: "sqlite" # CRAB_GATEWAY_DB_DRIVER (sqlite|postgres)
+  db_dsn: "gateway.db" # CRAB_GATEWAY_DB_DSN
+  gateway_id: "gateway-core" # CRAB_GATEWAY_ID
+  key_dir: ".crabstack/keys" # CRAB_GATEWAY_KEY_DIR
+  admin_socket_path: ".crabstack/run/gateway-admin.sock" # CRAB_GATEWAY_ADMIN_SOCKET_PATH
+  pair_timeout: "15s" # CRAB_GATEWAY_PAIR_TIMEOUT
+  pair_require_mtls_remote: true # CRAB_GATEWAY_REQUIRE_MTLS_REMOTE
+  pair_allow_insecure_loopback_pairing: true # CRAB_GATEWAY_ALLOW_INSECURE_LOOPBACK_PAIRING
+  pair_mtls_ca_file: "" # CRAB_GATEWAY_PAIR_MTLS_CA_FILE (set ca/cert/key together)
+  pair_mtls_cert_file: "" # CRAB_GATEWAY_PAIR_MTLS_CERT_FILE
+  pair_mtls_key_file: "" # CRAB_GATEWAY_PAIR_MTLS_KEY_FILE
+  auth:
+    # Gateway consumes these credential files.
+    codex_credentials_file: "~/.crabstack/auth/codex.json"
+    anthropic_credentials_file: "~/.crabstack/auth/anthropic.json"
+    claude_credentials_file: "~/.crabstack/auth/claude.json"
+  anthropic_api_key: "" # ANTHROPIC_API_KEY
+  openai_api_key: "" # OPENAI_API_KEY
+
+cli:
+  gateway_ws_url: "ws://127.0.0.1:8080/v1/pair" # crab --gateway-ws / CRAB_CLI_GATEWAY_WS_URL
+  gateway_http_url: "http://127.0.0.1:8080" # crab event send --gateway-http / CRAB_CLI_GATEWAY_HTTP_URL
+  gateway_public_key_ed25519: "" # --gateway-public-key / CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519
+
+  agent_id: "assistant" # crab --agent-id / CRAB_CLI_AGENT_ID; event send --agent-id
+  component_type: "operator" # crab --component-type / CRAB_CLI_COMPONENT_TYPE
+
+  gateway_admin_socket_path: ".crabstack/run/gateway-admin.sock" # pair* --admin-socket / CRAB_GATEWAY_ADMIN_SOCKET_PATH
+  gateway_key_dir: ".crabstack/keys" # CRAB_GATEWAY_KEY_DIR (pair test key fallback)
+  pair_listen_addr: "127.0.0.1:0" # pair test --listen-addr / CRAB_CLI_PAIR_LISTEN_ADDR
+  pair_listen_path: "/v1/pair" # pair test --listen-path / CRAB_CLI_PAIR_LISTEN_PATH
+
+  pair_timeout: "20s" # pair tool|subscriber|cli --timeout
+  pair_test_timeout: "20s" # pair test --timeout
+  event_send_timeout: "10s" # event send --timeout
+
+  auth_flow:
+    # CLI runs these flows, but gateway is the consumer of produced credentials.
+    # Auth commands intentionally use flags only (no env var overrides).
+    codex_timeout: "60s" # crab auth codex --timeout
+    anthropic_timeout: "60s" # crab auth anthropic --timeout
+    claude_timeout: "60s" # crab auth claude --timeout
+    claude_mode: "max" # crab auth claude --mode (max|console)

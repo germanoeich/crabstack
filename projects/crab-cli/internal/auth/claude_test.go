@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -78,59 +77,13 @@ func TestClaudeManualCodeHashFormat(t *testing.T) {
 	assertEqual(t, parsed.State, "state_123", "state")
 }
 
-func TestLoginClaudeManualFallback(t *testing.T) {
-	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if r.Form.Get("grant_type") != "authorization_code" {
-			http.Error(w, "bad grant_type", http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(r.Form.Get("code")) != "manual_code_value" {
-			http.Error(w, "bad code", http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(r.Form.Get("client_id")) == "" {
-			http.Error(w, "missing client_id", http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(r.Form.Get("code_verifier")) == "" {
-			http.Error(w, "missing code_verifier", http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(r.Form.Get("redirect_uri")) != claudeDefaultRedirectURL {
-			http.Error(w, "bad redirect_uri", http.StatusBadRequest)
-			return
-		}
-
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":  "access_test",
-			"refresh_token": "refresh_test",
-			"token_type":    "bearer",
-			"expires_in":    3600,
-			"account": map[string]any{
-				"id": "acct_claude_test",
-			},
-		})
-	}))
-	defer tokenServer.Close()
-
-	blockedListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen blocked callback addr: %v", err)
-	}
-	defer blockedListener.Close()
-
+func TestLoginClaudeSetupTokenManual(t *testing.T) {
 	cfg := DefaultClaudeConfig()
-	cfg.TokenURL = tokenServer.URL
-	cfg.CallbackAddr = blockedListener.Addr().String()
-	cfg.Timeout = 1 * time.Second
 	fixedNow := time.Date(2026, 2, 14, 12, 0, 0, 0, time.UTC)
 	cfg.Now = func() time.Time { return fixedNow }
 
-	input := bytes.NewBufferString("manual_code_value\n")
+	token := claudeSetupTokenForTest()
+	input := bytes.NewBufferString(token + "\n")
 	var output bytes.Buffer
 	creds, err := LoginClaude(context.Background(), cfg, input, &output)
 	if err != nil {
@@ -138,16 +91,28 @@ func TestLoginClaudeManualFallback(t *testing.T) {
 	}
 
 	assertEqual(t, creds.Provider, "claude", "provider")
-	assertEqual(t, creds.AccountID, "acct_claude_test", "account_id")
-	assertEqual(t, creds.RefreshToken, "refresh_test", "refresh_token")
+	assertEqual(t, creds.AccountID, "unknown", "account_id")
+	assertEqual(t, creds.AccessToken, token, "access_token")
+	assertEqual(t, creds.RefreshToken, token, "refresh_token")
 	assertEqual(t, creds.ProviderMeta["mode"], string(ClaudeModeMax), "provider_meta.mode")
-	assertEqual(t, creds.ProviderMeta["token_url"], tokenServer.URL, "provider_meta.token_url")
-	assertEqual(t, creds.ExpiresAt.UTC().Format(time.RFC3339), fixedNow.Add(time.Hour).UTC().Format(time.RFC3339), "expires_at")
-	if !strings.Contains(output.String(), "Open this URL in your browser") {
-		t.Fatalf("expected browser URL prompt in output")
+	assertEqual(t, creds.ProviderMeta["flow"], "setup-token", "provider_meta.flow")
+	assertEqual(t, creds.Scope, "setup-token", "scope")
+	if !strings.Contains(output.String(), "Paste Anthropic setup-token") {
+		t.Fatalf("expected setup-token prompt in output")
 	}
-	if !strings.Contains(output.String(), "Paste redirect URL or code") {
-		t.Fatalf("expected manual fallback prompt in output")
+}
+
+func TestLoginClaudeRejectsInvalidSetupToken(t *testing.T) {
+	cfg := DefaultClaudeConfig()
+
+	input := bytes.NewBufferString("bad-token\n")
+	var output bytes.Buffer
+	_, err := LoginClaude(context.Background(), cfg, input, &output)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "expected setup-token starting with") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -213,4 +178,8 @@ func TestSaveClaudeCredentials(t *testing.T) {
 	}
 	assertEqual(t, decoded.Provider, "claude", "saved provider")
 	assertEqual(t, decoded.AccountID, "acct_1", "saved account_id")
+}
+
+func claudeSetupTokenForTest() string {
+	return claudeSetupTokenPrefix + strings.Repeat("x", claudeSetupTokenMinLength-len(claudeSetupTokenPrefix))
 }

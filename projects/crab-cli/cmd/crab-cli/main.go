@@ -85,14 +85,14 @@ func configFromFlags(args []string) (client.Config, error) {
 	fs := flag.NewFlagSet("crab", flag.ContinueOnError)
 	gatewayWS := fs.String("gateway-ws", envOrDefault("CRAB_CLI_GATEWAY_WS_URL", "ws://127.0.0.1:8080/v1/pair"), "gateway pairing websocket url")
 	gatewayPub := fs.String("gateway-public-key", strings.TrimSpace(os.Getenv("CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519")), "trusted gateway ed25519 public key (base64)")
-	tenantID := fs.String("tenant-id", envOrDefault("CRAB_CLI_TENANT_ID", "local"), "tenant id")
+	tenantID := fs.String("tenant-id", "local", "tenant id")
 	agentID := fs.String("agent-id", envOrDefault("CRAB_CLI_AGENT_ID", "assistant"), "agent id")
-	sessionID := fs.String("session-id", envOrDefault("CRAB_CLI_SESSION_ID", fmt.Sprintf("cli-%d", time.Now().UTC().Unix())), "session id")
-	componentID := fs.String("component-id", envOrDefault("CRAB_CLI_COMPONENT_ID", hostnameOrDefault("crab-cli")), "component id")
+	sessionID := fs.String("session-id", fmt.Sprintf("cli-%d", time.Now().UTC().Unix()), "session id")
+	componentID := fs.String("component-id", hostnameOrDefault("crab-cli"), "component id")
 	componentType := fs.String("component-type", envOrDefault("CRAB_CLI_COMPONENT_TYPE", string(types.ComponentTypeOperator)), "component type")
-	platform := fs.String("platform", envOrDefault("CRAB_CLI_PLATFORM", "cli"), "source platform for outbound events")
-	channelID := fs.String("channel-id", envOrDefault("CRAB_CLI_CHANNEL_ID", "terminal"), "source channel_id for outbound events")
-	actorID := fs.String("actor-id", envOrDefault("CRAB_CLI_ACTOR_ID", "operator"), "source actor_id for outbound events")
+	platform := fs.String("platform", "cli", "source platform for outbound events")
+	channelID := fs.String("channel-id", "terminal", "source channel_id for outbound events")
+	actorID := fs.String("actor-id", "operator", "source actor_id for outbound events")
 	if err := fs.Parse(args); err != nil {
 		return client.Config{}, err
 	}
@@ -183,7 +183,7 @@ func runPairTestCommand(args []string) error {
 	fs := flag.NewFlagSet("crab pair test", flag.ContinueOnError)
 	adminSocket := fs.String("admin-socket", envOrDefault("CRAB_GATEWAY_ADMIN_SOCKET_PATH", ".crabstack/run/gateway-admin.sock"), "gateway admin unix socket path")
 	gatewayPub := fs.String("gateway-public-key", strings.TrimSpace(os.Getenv("CRAB_CLI_GATEWAY_PUBLIC_KEY_ED25519")), "trusted gateway ed25519 public key (base64)")
-	componentID := fs.String("component-id", envOrDefault("CRAB_CLI_COMPONENT_ID", hostnameOrDefault("crab-cli-test")), "component id")
+	componentID := fs.String("component-id", hostnameOrDefault("crab-cli-test"), "component id")
 	listenAddr := fs.String("listen-addr", envOrDefault("CRAB_CLI_PAIR_LISTEN_ADDR", "127.0.0.1:0"), "local listen address for temporary pair endpoint")
 	listenPath := fs.String("listen-path", envOrDefault("CRAB_CLI_PAIR_LISTEN_PATH", "/v1/pair"), "local listen path for temporary pair endpoint")
 	timeout := fs.Duration("timeout", 20*time.Second, "pairing timeout")
@@ -243,43 +243,17 @@ func runAuthCommand(args []string) error {
 func runAuthCodexCommand(args []string) error {
 	defaultCfg := codexDefaultConfig()
 	fs := flag.NewFlagSet("crab auth codex", flag.ContinueOnError)
-	authFile := fs.String("auth-file", envOrDefault("CRAB_AUTH_CODEX_FILE", codexDefaultCredentialsPath()), "output path for codex oauth credentials json")
-	originator := fs.String("originator", envOrDefault("CRAB_AUTH_CODEX_ORIGINATOR", defaultCfg.Originator), "oauth originator parameter")
+	authFile := fs.String("auth-file", codexDefaultCredentialsPath(), "output path for codex oauth credentials json")
 	timeout := fs.Duration("timeout", 60*time.Second, "oauth callback wait timeout")
-	authorizeURL := fs.String("authorize-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_AUTHORIZE_URL")), "override oauth authorize url")
-	tokenURL := fs.String("token-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_TOKEN_URL")), "override oauth token url")
-	redirectURL := fs.String("redirect-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_REDIRECT_URL")), "override oauth redirect url")
-	callbackAddr := fs.String("callback-addr", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_CALLBACK_ADDR")), "override local callback listen address")
-	callbackPath := fs.String("callback-path", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_CALLBACK_PATH")), "override local callback path")
-	clientID := fs.String("client-id", strings.TrimSpace(os.Getenv("CRAB_AUTH_CODEX_CLIENT_ID")), "override oauth client id")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if len(fs.Args()) > 0 {
-		return fmt.Errorf("usage: crab auth codex [--auth-file <path>] [--originator <value>] [--timeout <duration>]")
+		return fmt.Errorf("usage: crab auth codex [--auth-file <path>] [--timeout <duration>]")
 	}
 
 	cfg := defaultCfg
-	cfg.Originator = strings.TrimSpace(*originator)
 	cfg.Timeout = *timeout
-	if v := strings.TrimSpace(*authorizeURL); v != "" {
-		cfg.AuthorizeURL = v
-	}
-	if v := strings.TrimSpace(*tokenURL); v != "" {
-		cfg.TokenURL = v
-	}
-	if v := strings.TrimSpace(*redirectURL); v != "" {
-		cfg.RedirectURL = v
-	}
-	if v := strings.TrimSpace(*callbackAddr); v != "" {
-		cfg.CallbackAddr = v
-	}
-	if v := strings.TrimSpace(*callbackPath); v != "" {
-		cfg.CallbackPath = v
-	}
-	if v := strings.TrimSpace(*clientID); v != "" {
-		cfg.ClientID = v
-	}
 
 	creds, err := codexLogin(context.Background(), cfg, os.Stdin, os.Stdout)
 	if err != nil {
@@ -302,15 +276,8 @@ func runAuthCodexCommand(args []string) error {
 func runAuthAnthropicCommand(args []string) error {
 	defaultCfg := anthropicDefaultConfig()
 	fs := flag.NewFlagSet("crab auth anthropic", flag.ContinueOnError)
-	authFile := fs.String("auth-file", envOrDefault("CRAB_AUTH_ANTHROPIC_FILE", anthropicDefaultCredentialsPath()), "output path for anthropic oauth credentials json")
+	authFile := fs.String("auth-file", anthropicDefaultCredentialsPath(), "output path for anthropic oauth credentials json")
 	timeout := fs.Duration("timeout", defaultCfg.Timeout, "oauth callback wait timeout")
-	authorizeURL := fs.String("authorize-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_AUTHORIZE_URL")), "override oauth authorize url")
-	tokenURL := fs.String("token-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_TOKEN_URL")), "override oauth token url")
-	redirectURL := fs.String("redirect-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_REDIRECT_URL")), "override oauth redirect url")
-	callbackAddr := fs.String("callback-addr", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_CALLBACK_ADDR")), "override local callback listen address")
-	callbackPath := fs.String("callback-path", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_CALLBACK_PATH")), "override local callback path")
-	clientID := fs.String("client-id", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_CLIENT_ID")), "override oauth client id")
-	scope := fs.String("scope", envOrDefault("CRAB_AUTH_ANTHROPIC_SCOPE", defaultCfg.Scope), "override oauth scope")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -320,25 +287,6 @@ func runAuthAnthropicCommand(args []string) error {
 
 	cfg := defaultCfg
 	cfg.Timeout = *timeout
-	cfg.Scope = strings.TrimSpace(*scope)
-	if v := strings.TrimSpace(*authorizeURL); v != "" {
-		cfg.AuthorizeURL = v
-	}
-	if v := strings.TrimSpace(*tokenURL); v != "" {
-		cfg.TokenURL = v
-	}
-	if v := strings.TrimSpace(*redirectURL); v != "" {
-		cfg.RedirectURL = v
-	}
-	if v := strings.TrimSpace(*callbackAddr); v != "" {
-		cfg.CallbackAddr = v
-	}
-	if v := strings.TrimSpace(*callbackPath); v != "" {
-		cfg.CallbackPath = v
-	}
-	if v := strings.TrimSpace(*clientID); v != "" {
-		cfg.ClientID = v
-	}
 
 	creds, err := anthropicLogin(context.Background(), cfg, os.Stdin, os.Stdout)
 	if err != nil {
@@ -361,16 +309,9 @@ func runAuthAnthropicCommand(args []string) error {
 func runAuthClaudeCommand(args []string) error {
 	defaultCfg := claudeDefaultConfig()
 	fs := flag.NewFlagSet("crab auth claude", flag.ContinueOnError)
-	authFile := fs.String("auth-file", envOrDefault("CRAB_AUTH_CLAUDE_FILE", claudeDefaultCredentialsPath()), "output path for claude oauth credentials json")
-	mode := fs.String("mode", envOrDefault("CRAB_AUTH_CLAUDE_MODE", string(defaultCfg.Mode)), "oauth mode: max or console")
-	timeout := fs.Duration("timeout", defaultCfg.Timeout, "oauth callback wait timeout")
-	authorizeURL := fs.String("authorize-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CLAUDE_AUTHORIZE_URL")), "override oauth authorize url")
-	tokenURL := fs.String("token-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CLAUDE_TOKEN_URL")), "override oauth token url")
-	redirectURL := fs.String("redirect-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_CLAUDE_REDIRECT_URL")), "override oauth redirect url")
-	callbackAddr := fs.String("callback-addr", strings.TrimSpace(os.Getenv("CRAB_AUTH_CLAUDE_CALLBACK_ADDR")), "override local callback listen address")
-	callbackPath := fs.String("callback-path", strings.TrimSpace(os.Getenv("CRAB_AUTH_CLAUDE_CALLBACK_PATH")), "override local callback path")
-	clientID := fs.String("client-id", strings.TrimSpace(os.Getenv("CRAB_AUTH_CLAUDE_CLIENT_ID")), "override oauth client id")
-	scope := fs.String("scope", strings.TrimSpace(os.Getenv("CRAB_AUTH_CLAUDE_SCOPE")), "override oauth scope")
+	authFile := fs.String("auth-file", claudeDefaultCredentialsPath(), "output path for claude oauth credentials json")
+	mode := fs.String("mode", string(defaultCfg.Mode), "auth mode label: max or console")
+	timeout := fs.Duration("timeout", defaultCfg.Timeout, "setup-token input timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -381,37 +322,14 @@ func runAuthClaudeCommand(args []string) error {
 	cfg := defaultCfg
 	cfg.Mode = authflow.ClaudeMode(strings.ToLower(strings.TrimSpace(*mode)))
 	cfg.Timeout = *timeout
-	cfg.AuthorizeURL = ""
-	cfg.Scope = ""
-	if v := strings.TrimSpace(*authorizeURL); v != "" {
-		cfg.AuthorizeURL = v
-	}
-	if v := strings.TrimSpace(*tokenURL); v != "" {
-		cfg.TokenURL = v
-	}
-	if v := strings.TrimSpace(*redirectURL); v != "" {
-		cfg.RedirectURL = v
-	}
-	if v := strings.TrimSpace(*callbackAddr); v != "" {
-		cfg.CallbackAddr = v
-	}
-	if v := strings.TrimSpace(*callbackPath); v != "" {
-		cfg.CallbackPath = v
-	}
-	if v := strings.TrimSpace(*clientID); v != "" {
-		cfg.ClientID = v
-	}
-	if v := strings.TrimSpace(*scope); v != "" {
-		cfg.Scope = v
-	}
 
 	creds, err := claudeLogin(context.Background(), cfg, os.Stdin, os.Stdout)
 	if err != nil {
-		return fmt.Errorf("claude oauth login failed: %w", err)
+		return fmt.Errorf("claude login failed: %w", err)
 	}
 	outputPath, err := claudeSaveCredentials(strings.TrimSpace(*authFile), creds)
 	if err != nil {
-		return fmt.Errorf("persist claude oauth credentials: %w", err)
+		return fmt.Errorf("persist claude credentials: %w", err)
 	}
 
 	fmt.Printf(
@@ -439,11 +357,11 @@ func runEventCommand(args []string) error {
 func runEventSendCommand(args []string) error {
 	fs := flag.NewFlagSet("crab event send", flag.ContinueOnError)
 	gatewayHTTP := fs.String("gateway-http", envOrDefault("CRAB_CLI_GATEWAY_HTTP_URL", "http://127.0.0.1:8080"), "gateway HTTP base URL")
-	tenantID := fs.String("tenant-id", envOrDefault("CRAB_CLI_TENANT_ID", "local"), "tenant id")
-	agentID := fs.String("agent-id", envOrDefault("CRAB_CLI_AGENT_ID", "assistant"), "agent id")
-	componentID := fs.String("component-id", envOrDefault("CRAB_CLI_COMPONENT_ID", hostnameOrDefault("crab-cli")), "component id")
-	channelID := fs.String("channel-id", envOrDefault("CRAB_CLI_CHANNEL_ID", "cli"), "channel id")
-	actorID := fs.String("actor-id", envOrDefault("CRAB_CLI_ACTOR_ID", "operator"), "actor id")
+	tenantID := fs.String("tenant-id", "local", "tenant id")
+	agentID := fs.String("agent-id", "assistant", "agent id")
+	componentID := fs.String("component-id", hostnameOrDefault("crab-cli"), "component id")
+	channelID := fs.String("channel-id", "cli", "channel id")
+	actorID := fs.String("actor-id", "operator", "actor id")
 	timeout := fs.Duration("timeout", 10*time.Second, "request timeout")
 	if err := fs.Parse(args); err != nil {
 		return err

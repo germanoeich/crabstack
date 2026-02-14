@@ -222,23 +222,95 @@ func TestSaveCredentials(t *testing.T) {
 }
 
 func TestExtractChatGPTAccountID(t *testing.T) {
-	token := jwtWithAccountID("acct_abc")
-	accountID, err := extractChatGPTAccountID(token)
-	if err != nil {
-		t.Fatalf("extractChatGPTAccountID failed: %v", err)
+	tests := []struct {
+		name    string
+		token   tokenResponse
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "nested auth claim",
+			token: tokenResponse{
+				AccessToken: jwtWithPayload(`{"https://api.openai.com/auth":{"chatgpt_account_id":"acct_nested"}}`),
+			},
+			want: "acct_nested",
+		},
+		{
+			name: "legacy access token claim",
+			token: tokenResponse{
+				AccessToken: jwtWithAccountIDClaim("https://api.openai.com/auth.chatgpt_account_id", "acct_legacy"),
+			},
+			want: "acct_legacy",
+		},
+		{
+			name: "slash access token claim",
+			token: tokenResponse{
+				AccessToken: jwtWithAccountID("acct_slash"),
+			},
+			want: "acct_slash",
+		},
+		{
+			name: "organizations fallback",
+			token: tokenResponse{
+				AccessToken: jwtWithPayload(`{"organizations":[{"id":"acct_org"}]}`),
+			},
+			want: "acct_org",
+		},
+		{
+			name: "id token fallback",
+			token: tokenResponse{
+				AccessToken: jwtWithoutAccountID(),
+				IDToken:     jwtWithAccountID("acct_id_token"),
+			},
+			want: "acct_id_token",
+		},
+		{
+			name: "account object fallback",
+			token: tokenResponse{
+				AccessToken: jwtWithoutAccountID(),
+				Account: map[string]any{
+					"id": "acct_account",
+				},
+			},
+			want: "acct_account",
+		},
+		{
+			name: "missing claim",
+			token: tokenResponse{
+				AccessToken: jwtWithoutAccountID(),
+			},
+			wantErr: true,
+		},
 	}
-	assertEqual(t, accountID, "acct_abc", "account_id")
 
-	missingClaimToken := jwtWithoutAccountID()
-	_, err = extractChatGPTAccountID(missingClaimToken)
-	if err == nil {
-		t.Fatalf("expected missing-claim error")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			accountID, err := extractChatGPTAccountID(tc.token)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected missing-claim error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("extractChatGPTAccountID failed: %v", err)
+			}
+			assertEqual(t, accountID, tc.want, "account_id")
+		})
 	}
 }
 
 func jwtWithAccountID(accountID string) string {
+	return jwtWithAccountIDClaim("https://api.openai.com/auth/chatgpt_account_id", accountID)
+}
+
+func jwtWithAccountIDClaim(claimKey, accountID string) string {
+	return jwtWithPayload(fmt.Sprintf(`{"%s":"%s"}`, claimKey, accountID))
+}
+
+func jwtWithPayload(payloadJSON string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"https://api.openai.com/auth.chatgpt_account_id":"%s"}`, accountID)))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(payloadJSON))
 	return header + "." + payload + ".sig"
 }
 

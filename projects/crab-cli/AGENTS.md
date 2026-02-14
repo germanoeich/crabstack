@@ -33,15 +33,15 @@ This project implements a terminal operator client for Crabstack:
 - `crab auth codex` executes subscription OAuth (PKCE + localhost callback + manual fallback):
   - defaults to OpenAI auth endpoints and fixed client id expected by Codex subscription flow
   - validates ChatGPT account claim from access token
-  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/codex.json` unless overridden
-- `crab auth claude` executes Anthropic OAuth (PKCE + localhost callback + manual fallback):
-  - supports `--mode max` (authorize via `https://claude.ai/oauth/authorize`, scope `user:inference`) and `--mode console` (authorize via `https://console.anthropic.com/oauth/authorize`, scope `org:create_api_key`)
-  - exchanges code at `https://console.anthropic.com/v1/oauth/token` with shared Anthropic OAuth client id
-  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/claude.json` unless overridden
+  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/codex.json` for gateway consumption unless overridden
+- `crab auth claude` uses Claude setup-token flow (instead of direct OAuth URL auth):
+  - prompts to paste a setup-token
+  - validates token shape (`sk-ant-oat01-...`) before persistence
+  - persists JSON credentials to `~/.crabstack/auth/claude.json` for gateway consumption unless overridden
 - `crab auth anthropic` executes subscription OAuth (PKCE + manual code paste):
   - defaults to Anthropic auth endpoints and fixed client id expected by Claude subscription flow
   - prompts for manual auth code (or redirect URL) after browser approval
-  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/anthropic.json` unless overridden
+  - persists JSON credentials (includes refresh token + expiry) to `~/.crabstack/auth/anthropic.json` for gateway consumption unless overridden
 - `crab pair test` runs full handshake phases:
   - `pair.init`
   - `pair.identity`
