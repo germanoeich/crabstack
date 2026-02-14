@@ -36,6 +36,7 @@ This project implements the Crabstack gateway runtime:
 - `CRAB_GATEWAY_PAIR_MTLS_CERT_FILE` (optional; must be set with ca/key when used)
 - `CRAB_GATEWAY_PAIR_MTLS_KEY_FILE` (optional; must be set with ca/cert when used)
 - `CRAB_GATEWAY_WEBHOOK_URLS` (default empty; comma-separated webhook subscriber targets)
+- `CRAB_GATEWAY_TOOL_HOST_URLS` (default empty; comma-separated `name=url` tool host discovery targets)
 
 ## Package map
 - `cmd/crab-gateway`: process bootstrap and wiring.

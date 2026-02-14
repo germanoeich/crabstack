@@ -62,11 +62,69 @@ type anthropicRequest struct {
 	MaxTokens int                `json:"max_tokens"`
 	Messages  []anthropicMessage `json:"messages"`
 	System    string             `json:"system,omitempty"`
+	Tools     []anthropicTool    `json:"tools,omitempty"`
+}
+
+type anthropicTool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
 }
 
 type anthropicMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string           `json:"role"`
+	Content anthropicContent `json:"content"`
+}
+
+type anthropicContent struct {
+	text   *string
+	blocks []anthropicContentBlock
+}
+
+func newAnthropicTextContent(text string) anthropicContent {
+	return anthropicContent{text: &text}
+}
+
+func newAnthropicBlockContent(blocks []anthropicContentBlock) anthropicContent {
+	copied := make([]anthropicContentBlock, len(blocks))
+	copy(copied, blocks)
+	return anthropicContent{blocks: copied}
+}
+
+func (c anthropicContent) MarshalJSON() ([]byte, error) {
+	if len(c.blocks) > 0 {
+		return json.Marshal(c.blocks)
+	}
+	if c.text == nil {
+		return json.Marshal("")
+	}
+	return json.Marshal(*c.text)
+}
+
+func (c *anthropicContent) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		empty := ""
+		c.text = &empty
+		c.blocks = nil
+		return nil
+	}
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var blocks []anthropicContentBlock
+		if err := json.Unmarshal(trimmed, &blocks); err != nil {
+			return err
+		}
+		c.text = nil
+		c.blocks = blocks
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(trimmed, &text); err != nil {
+		return err
+	}
+	c.text = &text
+	c.blocks = nil
+	return nil
 }
 
 type anthropicResponse struct {
@@ -80,8 +138,14 @@ type anthropicResponse struct {
 }
 
 type anthropicContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
 }
 
 type anthropicUsage struct {
@@ -124,6 +188,7 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 		MaxTokens: req.MaxTokens,
 		Messages:  messages,
 		System:    system,
+		Tools:     buildAnthropicTools(req.Tools),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -153,8 +218,9 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 		return CompletionResponse{}, fmt.Errorf("decode anthropic response: %w", err)
 	}
 
-	content := anthropicText(parsed.Content)
-	if strings.TrimSpace(content) == "" {
+	blocks := parseAnthropicBlocks(parsed.Content)
+	content := anthropicText(blocks)
+	if strings.TrimSpace(content) == "" && !hasToolUseBlock(blocks) {
 		return CompletionResponse{}, errors.New("anthropic response contained no text")
 	}
 
@@ -165,6 +231,7 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 
 	return CompletionResponse{
 		Content: content,
+		Blocks:  blocks,
 		Usage: Usage{
 			InputTokens:  parsed.Usage.InputTokens,
 			OutputTokens: parsed.Usage.OutputTokens,
@@ -185,11 +252,19 @@ func buildAnthropicMessages(req CompletionRequest) ([]anthropicMessage, string, 
 		role := strings.ToLower(strings.TrimSpace(string(message.Role)))
 		switch role {
 		case string(RoleSystem):
-			if strings.TrimSpace(message.Content) != "" {
-				systemParts = append(systemParts, message.Content)
+			if text := messageText(message); strings.TrimSpace(text) != "" {
+				systemParts = append(systemParts, text)
 			}
 		case string(RoleUser), string(RoleAssistant):
-			messages = append(messages, anthropicMessage{Role: role, Content: message.Content})
+			if len(message.Blocks) > 0 {
+				blocks, err := toAnthropicBlocks(message.Blocks)
+				if err != nil {
+					return nil, "", err
+				}
+				messages = append(messages, anthropicMessage{Role: role, Content: newAnthropicBlockContent(blocks)})
+				continue
+			}
+			messages = append(messages, anthropicMessage{Role: role, Content: newAnthropicTextContent(message.Content)})
 		default:
 			return nil, "", fmt.Errorf("unsupported message role: %s", message.Role)
 		}
@@ -198,15 +273,124 @@ func buildAnthropicMessages(req CompletionRequest) ([]anthropicMessage, string, 
 	return messages, strings.Join(systemParts, "\n\n"), nil
 }
 
-func anthropicText(content []anthropicContentBlock) string {
+func buildAnthropicTools(tools []ToolDefinition) []anthropicTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	built := make([]anthropicTool, 0, len(tools))
+	for _, tool := range tools {
+		built = append(built, anthropicTool{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: cloneRawMessageOrObject(tool.InputSchema),
+		})
+	}
+	return built
+}
+
+func messageText(message Message) string {
+	if len(message.Blocks) == 0 {
+		return message.Content
+	}
 	var builder strings.Builder
-	for _, block := range content {
+	for _, block := range message.Blocks {
 		if block.Type != "text" {
 			continue
 		}
 		builder.WriteString(block.Text)
 	}
 	return builder.String()
+}
+
+func toAnthropicBlocks(blocks []ContentBlock) ([]anthropicContentBlock, error) {
+	converted := make([]anthropicContentBlock, 0, len(blocks))
+	for _, block := range blocks {
+		switch block.Type {
+		case "text":
+			converted = append(converted, anthropicContentBlock{Type: "text", Text: block.Text})
+		case "tool_use":
+			converted = append(converted, anthropicContentBlock{
+				Type:  "tool_use",
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: cloneRawMessageOrObject(block.Input),
+			})
+		case "tool_result":
+			converted = append(converted, anthropicContentBlock{
+				Type:      "tool_result",
+				ToolUseID: block.ToolUseID,
+				Content:   block.Content,
+				IsError:   block.IsError,
+			})
+		default:
+			return nil, fmt.Errorf("unsupported content block type: %s", block.Type)
+		}
+	}
+	return converted, nil
+}
+
+func parseAnthropicBlocks(content []anthropicContentBlock) []ContentBlock {
+	blocks := make([]ContentBlock, 0, len(content))
+	for _, block := range content {
+		switch block.Type {
+		case "text":
+			blocks = append(blocks, ContentBlock{Type: "text", Text: block.Text})
+		case "tool_use":
+			blocks = append(blocks, ContentBlock{
+				Type:  "tool_use",
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: cloneRawMessage(block.Input),
+			})
+		case "tool_result":
+			blocks = append(blocks, ContentBlock{
+				Type:      "tool_result",
+				ToolUseID: block.ToolUseID,
+				Content:   block.Content,
+				IsError:   block.IsError,
+			})
+		}
+	}
+	return blocks
+}
+
+func anthropicText(blocks []ContentBlock) string {
+	var builder strings.Builder
+	for _, block := range blocks {
+		if block.Type != "text" {
+			continue
+		}
+		builder.WriteString(block.Text)
+	}
+	return builder.String()
+}
+
+func hasToolUseBlock(blocks []ContentBlock) bool {
+	for _, block := range blocks {
+		if block.Type == "tool_use" {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneRawMessage(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	copied := make(json.RawMessage, len(raw))
+	copy(copied, raw)
+	return copied
+}
+
+func cloneRawMessageOrObject(raw json.RawMessage) json.RawMessage {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	copied := make(json.RawMessage, len(trimmed))
+	copy(copied, trimmed)
+	return copied
 }
 
 func parseAnthropicAPIError(resp *http.Response) error {

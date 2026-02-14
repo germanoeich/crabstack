@@ -25,6 +25,7 @@ import (
 	"crabstack.local/projects/crab-gateway/internal/subscribers"
 	logging "crabstack.local/projects/crab-gateway/internal/subscribers/logging"
 	"crabstack.local/projects/crab-gateway/internal/subscribers/webhook"
+	"crabstack.local/projects/crab-gateway/internal/toolclient"
 )
 
 func main() {
@@ -97,7 +98,22 @@ func main() {
 		pairing.WithAllowInsecureLoopback(cfg.PairAllowInsecureLoopback),
 	)
 
-	service := gateway.NewService(logger, dispatcher, store, modelRegistry)
+	toolHosts, err := toolHostConfigsFromEnv()
+	if err != nil {
+		logger.Fatalf("invalid CRAB_GATEWAY_TOOL_HOST_URLS: %v", err)
+	}
+
+	var tc *toolclient.Client
+	if len(toolHosts) > 0 {
+		tc = toolclient.New(logger, toolHosts)
+		discoverCtx, discoverCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer discoverCancel()
+		if err := tc.Discover(discoverCtx); err != nil {
+			logger.Printf("tool discovery warning: %v", err)
+		}
+	}
+
+	service := gateway.NewService(logger, dispatcher, store, modelRegistry, tc)
 	publicSrv := httpapi.NewServer(logger, cfg.HTTPAddr, service, nil, false)
 	adminSrv := httpapi.NewServer(logger, "unix://"+cfg.AdminSocketPath, service, pairingService, true)
 
@@ -173,4 +189,40 @@ func webhookSubscriberName(index int, webhookURL string) string {
 		}
 	}
 	return fmt.Sprintf("webhook-%d", index+1)
+}
+
+func toolHostConfigsFromEnv() ([]toolclient.HostConfig, error) {
+	raw := strings.TrimSpace(os.Getenv("CRAB_GATEWAY_TOOL_HOST_URLS"))
+	if raw == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	hosts := make([]toolclient.HostConfig, 0, len(parts))
+	for _, part := range parts {
+		entry := strings.TrimSpace(part)
+		if entry == "" {
+			continue
+		}
+
+		name, rawURL, ok := strings.Cut(entry, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid entry %q (expected name=url)", entry)
+		}
+		name = strings.TrimSpace(name)
+		rawURL = strings.TrimSpace(rawURL)
+		if name == "" || rawURL == "" {
+			return nil, fmt.Errorf("invalid entry %q (name and url are required)", entry)
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil || strings.TrimSpace(parsed.Scheme) == "" || strings.TrimSpace(parsed.Host) == "" {
+			return nil, fmt.Errorf("invalid url %q for host %q", rawURL, name)
+		}
+
+		hosts = append(hosts, toolclient.HostConfig{
+			Name:    name,
+			BaseURL: rawURL,
+		})
+	}
+	return hosts, nil
 }

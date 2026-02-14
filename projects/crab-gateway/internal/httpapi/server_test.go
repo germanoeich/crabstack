@@ -117,7 +117,7 @@ func TestPairingsRouteDisabledOnPublicServer(t *testing.T) {
 	d := dispatch.New(logger, nil)
 	store := session.NewMemoryStore()
 	t.Cleanup(func() { _ = store.Close() })
-	svc := gateway.NewService(logger, d, store, newModelRegistryForTests())
+	svc := gateway.NewService(logger, d, store, newModelRegistryForTests(), nil)
 	srv := NewServer(logger, ":0", svc, &fakePairingService{}, false)
 
 	body := []byte(`{"component_type":"tool","component_id":"memory-east","endpoint":"ws://10.0.0.1:5225"}`)
@@ -352,7 +352,7 @@ func newTestHandler(t *testing.T, pairingSvc pairing.Service) http.Handler {
 	d := dispatch.New(logger, nil)
 	store := session.NewMemoryStore()
 	t.Cleanup(func() { _ = store.Close() })
-	svc := gateway.NewService(logger, d, store, newModelRegistryForTests())
+	svc := gateway.NewService(logger, d, store, newModelRegistryForTests(), nil)
 	srv := NewServer(logger, ":0", svc, pairingSvc, true)
 	return srv.Handler
 }
