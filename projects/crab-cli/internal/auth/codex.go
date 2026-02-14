@@ -47,23 +47,28 @@ type Config struct {
 }
 
 type Credentials struct {
-	Provider     string    `json:"provider"`
-	ClientID     string    `json:"client_id"`
-	AccountID    string    `json:"account_id"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	TokenType    string    `json:"token_type,omitempty"`
-	Scope        string    `json:"scope,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	ObtainedAt   time.Time `json:"obtained_at"`
+	Provider     string            `json:"provider"`
+	ClientID     string            `json:"client_id"`
+	AccountID    string            `json:"account_id"`
+	AccountEmail string            `json:"account_email,omitempty"`
+	AccountName  string            `json:"account_name,omitempty"`
+	ProviderMeta map[string]string `json:"provider_meta,omitempty"`
+	AccountMeta  map[string]string `json:"account_meta,omitempty"`
+	AccessToken  string            `json:"access_token"`
+	RefreshToken string            `json:"refresh_token"`
+	TokenType    string            `json:"token_type,omitempty"`
+	Scope        string            `json:"scope,omitempty"`
+	ExpiresAt    time.Time         `json:"expires_at"`
+	ObtainedAt   time.Time         `json:"obtained_at"`
 }
 
 type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-	Scope        string `json:"scope"`
-	ExpiresIn    int64  `json:"expires_in"`
+	AccessToken  string         `json:"access_token"`
+	RefreshToken string         `json:"refresh_token"`
+	TokenType    string         `json:"token_type"`
+	Scope        string         `json:"scope"`
+	ExpiresIn    int64          `json:"expires_in"`
+	Account      map[string]any `json:"account,omitempty"`
 }
 
 type manualCode struct {
@@ -87,11 +92,7 @@ func DefaultConfig() Config {
 }
 
 func DefaultCredentialsPath() string {
-	home, err := os.UserHomeDir()
-	if err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".crabstack", "auth", "codex.json")
-	}
-	return filepath.Join(".crabstack", "auth", "codex.json")
+	return defaultCredentialsPath("codex.json")
 }
 
 func Login(ctx context.Context, cfg Config, input io.Reader, output io.Writer) (Credentials, error) {
@@ -136,9 +137,17 @@ func Login(ctx context.Context, cfg Config, input io.Reader, output io.Writer) (
 
 	now := cfg.Now().UTC()
 	creds := Credentials{
-		Provider:     "codex",
-		ClientID:     cfg.ClientID,
-		AccountID:    accountID,
+		Provider:  "codex",
+		ClientID:  cfg.ClientID,
+		AccountID: accountID,
+		ProviderMeta: map[string]string{
+			"authorize_url": cfg.AuthorizeURL,
+			"token_url":     cfg.TokenURL,
+			"redirect_url":  cfg.RedirectURL,
+		},
+		AccountMeta: map[string]string{
+			"chatgpt_account_id": accountID,
+		},
 		AccessToken:  token.AccessToken,
 		RefreshToken: token.RefreshToken,
 		TokenType:    token.TokenType,
@@ -150,15 +159,23 @@ func Login(ctx context.Context, cfg Config, input io.Reader, output io.Writer) (
 }
 
 func SaveCredentials(path string, creds Credentials) (string, error) {
+	return saveProviderCredentials(path, "codex", creds)
+}
+
+func saveProviderCredentials(path, defaultProvider string, creds Credentials) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("auth file path is required")
 	}
+	if strings.TrimSpace(creds.Provider) == "" {
+		creds.Provider = defaultProvider
+	}
+	return saveCredentials(path, creds)
+}
+
+func saveCredentials(path string, creds Credentials) (string, error) {
 	resolvedPath, err := expandPath(path)
 	if err != nil {
 		return "", err
-	}
-	if creds.Provider == "" {
-		creds.Provider = "codex"
 	}
 	encoded, err := json.MarshalIndent(creds, "", "  ")
 	if err != nil {
@@ -179,6 +196,14 @@ func SaveCredentials(path string, creds Credentials) (string, error) {
 		return "", fmt.Errorf("persist credentials: %w", err)
 	}
 	return resolvedPath, nil
+}
+
+func defaultCredentialsPath(filename string) string {
+	home, err := os.UserHomeDir()
+	if err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, ".crabstack", "auth", filename)
+	}
+	return filepath.Join(".crabstack", "auth", filename)
 }
 
 func (c Config) withDefaults() Config {

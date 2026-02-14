@@ -57,10 +57,13 @@ Crabstack is a modular Go toolkit for running personal/micro-group LLM agents ac
 
 - `crab-cli` (operator-side)
 - Uses gateway admin Unix socket for control-plane actions.
-- Supports Codex subscription OAuth bootstrap:
+- Supports subscription OAuth bootstrap:
   - `crab auth codex`
   - uses PKCE + localhost callback (`127.0.0.1:1455/auth/callback`) with manual paste fallback
   - writes credentials JSON to `~/.crabstack/auth/codex.json` by default
+  - `crab auth anthropic`
+  - uses PKCE + manual code/redirect paste flow
+  - writes credentials JSON to `~/.crabstack/auth/anthropic.json` by default
 - Supports one-shot event ingress for local/remote CLI chat:
   - `crab event send <text>`
   - posts `channel.message.received` to gateway `POST /v1/events`

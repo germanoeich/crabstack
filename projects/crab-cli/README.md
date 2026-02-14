@@ -13,8 +13,9 @@ Terminal UI client for Crabstack pairing + event exchange.
   - `crab pair test`
 - Supports one-shot event send:
   - `crab event send <text>`
-- Supports Codex subscription OAuth login:
+- Supports subscription OAuth login:
   - `crab auth codex`
+  - `crab auth anthropic`
 
 ## Pair External Component (Gateway-Initiated)
 From `projects/crab-cli`:
@@ -56,6 +57,19 @@ The `auth codex` command:
 - Falls back to manual paste when callback cannot be received.
 - Exchanges the auth code using PKCE.
 - Stores credentials JSON at `~/.crabstack/auth/codex.json` by default (override with `--auth-file` or `CRAB_AUTH_CODEX_FILE`).
+
+## Anthropic OAuth Login
+From `projects/crab-cli`:
+
+```bash
+crab auth anthropic
+```
+
+The `auth anthropic` command:
+- Prints the Anthropic authorize URL.
+- Uses manual code/redirect paste after browser approval.
+- Exchanges the auth code using PKCE.
+- Stores credentials JSON at `~/.crabstack/auth/anthropic.json` by default (override with `--auth-file` or `CRAB_AUTH_ANTHROPIC_FILE`).
 
 ## Pairing Handshake Test
 From `projects/crab-cli`:

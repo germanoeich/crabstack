@@ -30,10 +30,14 @@ import (
 )
 
 var (
-	codexLogin                  = authflow.Login
-	codexSaveCredentials        = authflow.SaveCredentials
-	codexDefaultConfig          = authflow.DefaultConfig
-	codexDefaultCredentialsPath = authflow.DefaultCredentialsPath
+	codexLogin                      = authflow.Login
+	codexSaveCredentials            = authflow.SaveCredentials
+	codexDefaultConfig              = authflow.DefaultConfig
+	codexDefaultCredentialsPath     = authflow.DefaultCredentialsPath
+	anthropicLogin                  = authflow.LoginAnthropic
+	anthropicSaveCredentials        = authflow.SaveAnthropicCredentials
+	anthropicDefaultConfig          = authflow.DefaultAnthropicConfig
+	anthropicDefaultCredentialsPath = authflow.DefaultAnthropicCredentialsPath
 )
 
 func main() {
@@ -217,14 +221,16 @@ func runPairTestCommand(args []string) error {
 
 func runAuthCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: crab auth <codex> ...")
+		return fmt.Errorf("usage: crab auth <codex|anthropic> ...")
 	}
 	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
 	switch subcommand {
 	case "codex":
 		return runAuthCodexCommand(args[1:])
+	case "anthropic":
+		return runAuthAnthropicCommand(args[1:])
 	default:
-		return fmt.Errorf("unsupported auth subcommand %q (supported: codex)", subcommand)
+		return fmt.Errorf("unsupported auth subcommand %q (supported: codex, anthropic)", subcommand)
 	}
 }
 
@@ -280,6 +286,65 @@ func runAuthCodexCommand(args []string) error {
 
 	fmt.Printf(
 		"codex auth complete\naccount_id=%s\nexpires_at=%s\npath=%s\n",
+		creds.AccountID,
+		creds.ExpiresAt.UTC().Format(time.RFC3339),
+		outputPath,
+	)
+	return nil
+}
+
+func runAuthAnthropicCommand(args []string) error {
+	defaultCfg := anthropicDefaultConfig()
+	fs := flag.NewFlagSet("crab auth anthropic", flag.ContinueOnError)
+	authFile := fs.String("auth-file", envOrDefault("CRAB_AUTH_ANTHROPIC_FILE", anthropicDefaultCredentialsPath()), "output path for anthropic oauth credentials json")
+	timeout := fs.Duration("timeout", defaultCfg.Timeout, "oauth callback wait timeout")
+	authorizeURL := fs.String("authorize-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_AUTHORIZE_URL")), "override oauth authorize url")
+	tokenURL := fs.String("token-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_TOKEN_URL")), "override oauth token url")
+	redirectURL := fs.String("redirect-url", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_REDIRECT_URL")), "override oauth redirect url")
+	callbackAddr := fs.String("callback-addr", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_CALLBACK_ADDR")), "override local callback listen address")
+	callbackPath := fs.String("callback-path", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_CALLBACK_PATH")), "override local callback path")
+	clientID := fs.String("client-id", strings.TrimSpace(os.Getenv("CRAB_AUTH_ANTHROPIC_CLIENT_ID")), "override oauth client id")
+	scope := fs.String("scope", envOrDefault("CRAB_AUTH_ANTHROPIC_SCOPE", defaultCfg.Scope), "override oauth scope")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) > 0 {
+		return fmt.Errorf("usage: crab auth anthropic [--auth-file <path>] [--timeout <duration>]")
+	}
+
+	cfg := defaultCfg
+	cfg.Timeout = *timeout
+	cfg.Scope = strings.TrimSpace(*scope)
+	if v := strings.TrimSpace(*authorizeURL); v != "" {
+		cfg.AuthorizeURL = v
+	}
+	if v := strings.TrimSpace(*tokenURL); v != "" {
+		cfg.TokenURL = v
+	}
+	if v := strings.TrimSpace(*redirectURL); v != "" {
+		cfg.RedirectURL = v
+	}
+	if v := strings.TrimSpace(*callbackAddr); v != "" {
+		cfg.CallbackAddr = v
+	}
+	if v := strings.TrimSpace(*callbackPath); v != "" {
+		cfg.CallbackPath = v
+	}
+	if v := strings.TrimSpace(*clientID); v != "" {
+		cfg.ClientID = v
+	}
+
+	creds, err := anthropicLogin(context.Background(), cfg, os.Stdin, os.Stdout)
+	if err != nil {
+		return fmt.Errorf("anthropic oauth login failed: %w", err)
+	}
+	outputPath, err := anthropicSaveCredentials(strings.TrimSpace(*authFile), creds)
+	if err != nil {
+		return fmt.Errorf("persist anthropic oauth credentials: %w", err)
+	}
+
+	fmt.Printf(
+		"anthropic auth complete\naccount_id=%s\nexpires_at=%s\npath=%s\n",
 		creds.AccountID,
 		creds.ExpiresAt.UTC().Format(time.RFC3339),
 		outputPath,

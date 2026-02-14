@@ -96,6 +96,20 @@ Notes:
 - Default credential path: `~/.crabstack/auth/codex.json`
 - Credentials file and parent directory must be created with owner-only permissions.
 
+## Anthropic subscription OAuth bootstrap (CLI)
+- Command: `crab auth anthropic`
+- Uses OAuth authorization code + PKCE against:
+  - `https://platform.claude.com/oauth/authorize`
+  - `https://platform.claude.com/v1/oauth/token`
+- Uses manual code/redirect paste after browser authorization.
+- Persisted credential file contains:
+  - `access_token`
+  - `refresh_token`
+  - `expires_at`
+  - provider/account metadata when available (`account_id`, `account_email`, account metadata map)
+- Default credential path: `~/.crabstack/auth/anthropic.json`
+- Credentials file and parent directory must be created with owner-only permissions.
+
 ## Persistence requirements
 - Persist paired remote identity metadata and status.
 - Suggested stored fields:
