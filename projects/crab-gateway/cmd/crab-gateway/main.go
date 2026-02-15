@@ -61,6 +61,12 @@ func main() {
 	if cfg.OpenAIAPIKey != "" {
 		modelRegistry.Register("openai", model.NewOpenAIProvider(cfg.OpenAIAPIKey))
 	}
+	if cfg.ClaudeAccessToken != "" {
+		modelRegistry.Register("claude", model.NewClaudeProvider(cfg.ClaudeAccessToken))
+	}
+	if cfg.CodexAccessToken != "" && cfg.CodexAccountID != "" {
+		modelRegistry.Register("codex", model.NewCodexProvider(cfg.CodexAccessToken, cfg.CodexAccountID))
+	}
 
 	identity, err := pairing.LoadOrCreateIdentity(cfg.KeyDir, cfg.GatewayID)
 	if err != nil {

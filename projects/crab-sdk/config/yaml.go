@@ -36,6 +36,7 @@ type fileGatewayConfig struct {
 	PairMTLSClientCertFile           string                   `yaml:"pair_mtls_cert_file"`
 	PairMTLSClientPrivateKeyFile     string                   `yaml:"pair_mtls_key_file"`
 	Agents                           []fileGatewayAgentConfig `yaml:"agents"`
+	Auth                             fileGatewayAuthConfig    `yaml:"auth"`
 	AnthropicAPIKey                  string                   `yaml:"anthropic_api_key"`
 	OpenAIAPIKey                     string                   `yaml:"openai_api_key"`
 }
@@ -46,6 +47,12 @@ type fileGatewayAgentConfig struct {
 	Channels     []string `yaml:"channels"`
 	Users        []string `yaml:"users"`
 	WorkspaceDir string   `yaml:"workspace_dir"`
+}
+
+type fileGatewayAuthConfig struct {
+	CodexCredentialsFile     string `yaml:"codex_credentials_file"`
+	AnthropicCredentialsFile string `yaml:"anthropic_credentials_file"`
+	ClaudeCredentialsFile    string `yaml:"claude_credentials_file"`
 }
 
 type fileCLIConfig struct {

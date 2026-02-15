@@ -46,6 +46,14 @@ func TestGatewayFromEnv_Default(t *testing.T) {
 	if cfg.AdminSocketPath != expectedAdminSocket {
 		t.Fatalf("expected default admin socket path %q, got %q", expectedAdminSocket, cfg.AdminSocketPath)
 	}
+	expectedClaudeCredentials := filepath.Join(homeDir, ".crabstack", "auth", "claude.json")
+	if cfg.ClaudeCredentialsFile != expectedClaudeCredentials {
+		t.Fatalf("expected default claude credentials path %q, got %q", expectedClaudeCredentials, cfg.ClaudeCredentialsFile)
+	}
+	expectedCodexCredentials := filepath.Join(homeDir, ".crabstack", "auth", "codex.json")
+	if cfg.CodexCredentialsFile != expectedCodexCredentials {
+		t.Fatalf("expected default codex credentials path %q, got %q", expectedCodexCredentials, cfg.CodexCredentialsFile)
+	}
 	if cfg.PairTimeout != DefaultGatewayPairTimeout {
 		t.Fatalf("expected default pair timeout %s, got %s", DefaultGatewayPairTimeout, cfg.PairTimeout)
 	}
@@ -87,6 +95,12 @@ func TestGatewayFromEnv_DefaultPrefersLocalCrabstackWhenPresent(t *testing.T) {
 	}
 	if cfg.AdminSocketPath != DefaultGatewayAdminSocketPath {
 		t.Fatalf("expected local default admin socket path %q, got %q", DefaultGatewayAdminSocketPath, cfg.AdminSocketPath)
+	}
+	if cfg.ClaudeCredentialsFile != filepath.Join(".crabstack", "auth", "claude.json") {
+		t.Fatalf("expected local default claude credentials path, got %q", cfg.ClaudeCredentialsFile)
+	}
+	if cfg.CodexCredentialsFile != filepath.Join(".crabstack", "auth", "codex.json") {
+		t.Fatalf("expected local default codex credentials path, got %q", cfg.CodexCredentialsFile)
 	}
 }
 
@@ -141,6 +155,75 @@ func TestGatewayFromEnv_Override(t *testing.T) {
 	}
 	if cfg.Agents[0].Name != "support" || cfg.Agents[0].Model != "anthropic/claude-sonnet-4-20250514" {
 		t.Fatalf("unexpected agents override: %+v", cfg.Agents[0])
+	}
+}
+
+func TestGatewayCredentialLoading(t *testing.T) {
+	claudePath := filepath.Join(t.TempDir(), "claude.json")
+	codexPath := filepath.Join(t.TempDir(), "codex.json")
+
+	if err := os.WriteFile(claudePath, []byte(`{"provider":"claude","access_token":"claude-token"}`), 0o600); err != nil {
+		t.Fatalf("write claude credentials: %v", err)
+	}
+	if err := os.WriteFile(codexPath, []byte(`{
+  "provider": "codex",
+  "access_token": "codex-token",
+  "account_meta": {
+    "chatgpt_account_id": "acct-123"
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("write codex credentials: %v", err)
+	}
+
+	cfg := GatewayConfig{
+		ClaudeCredentialsFile: claudePath,
+		CodexCredentialsFile:  codexPath,
+	}
+	if err := loadGatewaySubscriptionCredentials(&cfg); err != nil {
+		t.Fatalf("loadGatewaySubscriptionCredentials failed: %v", err)
+	}
+	if cfg.ClaudeAccessToken != "claude-token" {
+		t.Fatalf("expected claude access token to load, got %q", cfg.ClaudeAccessToken)
+	}
+	if cfg.CodexAccessToken != "codex-token" {
+		t.Fatalf("expected codex access token to load, got %q", cfg.CodexAccessToken)
+	}
+	if cfg.CodexAccountID != "acct-123" {
+		t.Fatalf("expected codex account id to load from account_meta, got %q", cfg.CodexAccountID)
+	}
+}
+
+func TestGatewayCredentialLoading_MissingFiles(t *testing.T) {
+	cfg := GatewayConfig{
+		ClaudeCredentialsFile: filepath.Join(t.TempDir(), "claude.json"),
+		CodexCredentialsFile:  filepath.Join(t.TempDir(), "codex.json"),
+	}
+
+	if err := loadGatewaySubscriptionCredentials(&cfg); err != nil {
+		t.Fatalf("expected missing credentials files to be skipped, got error: %v", err)
+	}
+	if cfg.ClaudeAccessToken != "" {
+		t.Fatalf("expected empty claude access token, got %q", cfg.ClaudeAccessToken)
+	}
+	if cfg.CodexAccessToken != "" {
+		t.Fatalf("expected empty codex access token, got %q", cfg.CodexAccessToken)
+	}
+	if cfg.CodexAccountID != "" {
+		t.Fatalf("expected empty codex account id, got %q", cfg.CodexAccountID)
+	}
+}
+
+func TestGatewayCredentialLoading_InvalidJSON(t *testing.T) {
+	codexPath := filepath.Join(t.TempDir(), "codex.json")
+	if err := os.WriteFile(codexPath, []byte(`not-json`), 0o600); err != nil {
+		t.Fatalf("write codex credentials: %v", err)
+	}
+
+	cfg := GatewayConfig{
+		CodexCredentialsFile: codexPath,
+	}
+	if err := loadGatewaySubscriptionCredentials(&cfg); err == nil {
+		t.Fatalf("expected invalid json error")
 	}
 }
 

@@ -2,7 +2,10 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"time"
 )
@@ -53,6 +56,11 @@ type GatewayConfig struct {
 	Agents                       []GatewayAgentConfig
 	AnthropicAPIKey              string
 	OpenAIAPIKey                 string
+	ClaudeCredentialsFile        string
+	CodexCredentialsFile         string
+	ClaudeAccessToken            string
+	CodexAccessToken             string
+	CodexAccountID               string
 }
 
 type GatewayAgentConfig struct {
@@ -66,6 +74,9 @@ type GatewayAgentConfig struct {
 func GatewayFromEnv() GatewayConfig {
 	cfg := defaultGatewayConfig()
 	applyGatewayEnv(&cfg)
+	if err := loadGatewaySubscriptionCredentials(&cfg); err != nil {
+		log.Printf("warn: failed loading gateway subscription credentials: %v", err)
+	}
 	return cfg
 }
 
@@ -80,6 +91,9 @@ func GatewayFromYAMLAndEnv() (GatewayConfig, error) {
 		return GatewayConfig{}, err
 	}
 	applyGatewayEnv(&cfg)
+	if err := loadGatewaySubscriptionCredentials(&cfg); err != nil {
+		return GatewayConfig{}, err
+	}
 
 	return cfg, nil
 }
@@ -95,6 +109,8 @@ func defaultGatewayConfig() GatewayConfig {
 		PairTimeout:               DefaultGatewayPairTimeout,
 		PairRequireMTLSRemote:     DefaultGatewayRequireMTLSRemote,
 		PairAllowInsecureLoopback: DefaultGatewayAllowInsecureLoopbackPair,
+		ClaudeCredentialsFile:     DefaultCrabstackPath("auth", "claude.json"),
+		CodexCredentialsFile:      DefaultCrabstackPath("auth", "codex.json"),
 	}
 }
 
@@ -171,6 +187,16 @@ func applyGatewayYAML(cfg *GatewayConfig, source fileGatewayConfig) error {
 	if value := strings.TrimSpace(source.OpenAIAPIKey); value != "" {
 		cfg.OpenAIAPIKey = value
 	}
+	claudeCredentialsFile := source.Auth.ClaudeCredentialsFile
+	if strings.TrimSpace(claudeCredentialsFile) == "" {
+		claudeCredentialsFile = source.Auth.AnthropicCredentialsFile
+	}
+	if value := strings.TrimSpace(claudeCredentialsFile); value != "" {
+		cfg.ClaudeCredentialsFile = ResolveCrabstackPath(value)
+	}
+	if value := strings.TrimSpace(source.Auth.CodexCredentialsFile); value != "" {
+		cfg.CodexCredentialsFile = ResolveCrabstackPath(value)
+	}
 
 	return nil
 }
@@ -202,6 +228,63 @@ func applyGatewayEnv(cfg *GatewayConfig) {
 	}
 	cfg.AnthropicAPIKey = EnvOrDefault(EnvGatewayAnthropicAPIKey, cfg.AnthropicAPIKey)
 	cfg.OpenAIAPIKey = EnvOrDefault(EnvGatewayOpenAIAPIKey, cfg.OpenAIAPIKey)
+}
+
+type subscriptionCredentials struct {
+	Provider    string            `json:"provider"`
+	AccountID   string            `json:"account_id"`
+	AccessToken string            `json:"access_token"`
+	AccountMeta map[string]string `json:"account_meta,omitempty"`
+}
+
+func loadSubscriptionCredentials(path string) (subscriptionCredentials, error) {
+	resolvedPath := ResolveCrabstackPath(path)
+	data, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return subscriptionCredentials{}, err
+	}
+
+	var creds subscriptionCredentials
+	if err := json.Unmarshal(data, &creds); err != nil {
+		return subscriptionCredentials{}, fmt.Errorf("decode credentials file %s: %w", resolvedPath, err)
+	}
+	creds.AccessToken = strings.TrimSpace(creds.AccessToken)
+	if creds.AccessToken == "" {
+		return subscriptionCredentials{}, fmt.Errorf("credentials file %s has empty access_token", resolvedPath)
+	}
+	creds.AccountID = strings.TrimSpace(creds.AccountID)
+	return creds, nil
+}
+
+func loadGatewaySubscriptionCredentials(cfg *GatewayConfig) error {
+	if strings.TrimSpace(cfg.ClaudeAccessToken) == "" {
+		claudeCreds, err := loadSubscriptionCredentials(cfg.ClaudeCredentialsFile)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		} else {
+			cfg.ClaudeAccessToken = claudeCreds.AccessToken
+		}
+	}
+
+	if strings.TrimSpace(cfg.CodexAccessToken) == "" {
+		codexCreds, err := loadSubscriptionCredentials(cfg.CodexCredentialsFile)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return nil
+		}
+		cfg.CodexAccessToken = codexCreds.AccessToken
+		if codexCreds.AccountID != "" {
+			cfg.CodexAccountID = codexCreds.AccountID
+		} else if accountID := strings.TrimSpace(codexCreds.AccountMeta["chatgpt_account_id"]); accountID != "" {
+			cfg.CodexAccountID = accountID
+		}
+	}
+
+	return nil
 }
 
 func (c GatewayConfig) Validate() error {
