@@ -293,12 +293,6 @@ func (s *Service) handleChannelMessage(ctx context.Context, inbound types.EventE
 				Text: responseText,
 			},
 		},
-		Actions: []types.AgentResponseAction{
-			{
-				Kind: types.AgentResponseActionKindSendMessage,
-				Args: map[string]any{"text": responseText},
-			},
-		},
 	}
 	response.Usage = &types.Usage{
 		InputTokens:  totalUsage.InputTokens,

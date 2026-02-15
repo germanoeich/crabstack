@@ -38,19 +38,12 @@ func TestCodexCompleteSuccess(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"id":"resp_1",
-			"model":"gpt-5-codex",
-			"status":"completed",
-			"output":[
-				{"type":"message","role":"assistant","content":[
-					{"type":"output_text","text":"pong"},
-					{"type":"output_text","text":"!"}
-				]}
-			],
-			"usage":{"input_tokens":11,"output_tokens":5,"total_tokens":16}
-		}`))
+		writeCodexSSE(w,
+			`{"type":"response.output_text.delta","delta":"pong"}`,
+			`{"type":"response.output_text.delta","delta":"!"}`,
+			`{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"pong"},{"type":"output_text","text":"!"}]}],"usage":{"input_tokens":11,"output_tokens":5,"total_tokens":16}}}`,
+			`[DONE]`,
+		)
 	}))
 	defer server.Close()
 
@@ -80,8 +73,8 @@ func TestCodexCompleteSuccess(t *testing.T) {
 	if seen.Store {
 		t.Fatalf("expected store=false")
 	}
-	if seen.Stream {
-		t.Fatalf("expected stream=false")
+	if !seen.Stream {
+		t.Fatalf("expected stream=true")
 	}
 	if seen.Temperature != 0.2 {
 		t.Fatalf("unexpected temperature: %v", seen.Temperature)
@@ -125,13 +118,10 @@ func TestCodexCompleteRequestIncludesToolsAndToolResultMessages(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"model":"gpt-5-codex",
-			"status":"completed",
-			"output":[{"type":"function_call","id":"call_resp_1","name":"get_time","arguments":"{\"zone\":\"UTC\"}"}],
-			"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}
-		}`))
+		writeCodexSSE(w,
+			`{"type":"response.completed","response":{"model":"gpt-5-codex","status":"completed","output":[{"type":"function_call","id":"call_resp_1","name":"get_time","arguments":"{\"zone\":\"UTC\"}"}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}`,
+			`[DONE]`,
+		)
 	}))
 	defer server.Close()
 
@@ -245,7 +235,7 @@ func TestCodexCompleteRateLimit(t *testing.T) {
 func TestCodexCompleteMalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":`))
+		writeCodexSSE(w, `{"type":"response.completed","response":{"id":`)
 	}))
 	defer server.Close()
 
@@ -271,7 +261,10 @@ func TestCodexCompleteMalformedJSON(t *testing.T) {
 func TestCodexCompleteEmptyContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`))
+		writeCodexSSE(w,
+			`{"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+			`[DONE]`,
+		)
 	}))
 	defer server.Close()
 
@@ -344,6 +337,107 @@ func TestCodexCompleteMissingCredentials(t *testing.T) {
 	}
 }
 
+func TestCodexCompleteFallsBackToOutputTextDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeCodexSSE(w,
+			`{"type":"response.output_text.delta","delta":"Hello"}`,
+			`{"type":"response.output_text.delta","delta":" world"}`,
+			`[DONE]`,
+		)
+	}))
+	defer server.Close()
+
+	provider := NewCodexProvider(
+		"test-token",
+		"acct-123",
+		WithCodexEndpoint(server.URL),
+		WithCodexHTTPClient(server.Client()),
+	)
+
+	resp, err := provider.Complete(context.Background(), CompletionRequest{
+		Model:    "gpt-5-codex",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if resp.Content != "Hello world" {
+		t.Fatalf("unexpected content: %q", resp.Content)
+	}
+	if resp.Model != "gpt-5-codex" {
+		t.Fatalf("unexpected model: %s", resp.Model)
+	}
+	if resp.StopReason != "end_turn" {
+		t.Fatalf("unexpected stop reason: %s", resp.StopReason)
+	}
+}
+
+func TestCodexCompleteFallsBackToToolUseFromDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeCodexSSE(w,
+			`{"type":"response.output_item.added","item":{"type":"function_call","id":"call_resp_1","name":"get_time","arguments":""}}`,
+			`{"type":"response.function_call_arguments.delta","item_id":"call_resp_1","delta":"{\"zone\":\"UTC\"}"}`,
+			`[DONE]`,
+		)
+	}))
+	defer server.Close()
+
+	provider := NewCodexProvider(
+		"test-token",
+		"acct-123",
+		WithCodexEndpoint(server.URL),
+		WithCodexHTTPClient(server.Client()),
+	)
+
+	resp, err := provider.Complete(context.Background(), CompletionRequest{
+		Model:    "gpt-5-codex",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if resp.StopReason != "tool_use" {
+		t.Fatalf("unexpected stop reason: %s", resp.StopReason)
+	}
+	if len(resp.Blocks) != 1 {
+		t.Fatalf("expected one content block, got %d", len(resp.Blocks))
+	}
+	if resp.Blocks[0].Type != "tool_use" || resp.Blocks[0].ID != "call_resp_1" || resp.Blocks[0].Name != "get_time" {
+		t.Fatalf("unexpected block: %+v", resp.Blocks[0])
+	}
+	if string(resp.Blocks[0].Input) != `{"zone":"UTC"}` {
+		t.Fatalf("unexpected tool input: %s", string(resp.Blocks[0].Input))
+	}
+}
+
+func TestCodexCompleteHandlesFailedStreamEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeCodexSSE(w,
+			`{"type":"response.failed","response":{"error":{"message":"stream failed"}}}`,
+			`[DONE]`,
+		)
+	}))
+	defer server.Close()
+
+	provider := NewCodexProvider(
+		"test-token",
+		"acct-123",
+		WithCodexEndpoint(server.URL),
+		WithCodexHTTPClient(server.Client()),
+	)
+
+	_, err := provider.Complete(context.Background(), CompletionRequest{
+		Model:    "gpt-5-codex",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err == nil {
+		t.Fatalf("expected stream failure error")
+	}
+	if !strings.Contains(err.Error(), "stream failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestResolveCodexEndpoint(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -362,5 +456,71 @@ func TestResolveCodexEndpoint(t *testing.T) {
 				t.Fatalf("unexpected endpoint: got %s want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseCodexSSECompletedEvent(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"Hello"}`,
+		``,
+		`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	parsed, err := parseCodexSSE(strings.NewReader(stream))
+	if err != nil {
+		t.Fatalf("parseCodexSSE: %v", err)
+	}
+	if parsed.ID != "resp_1" || parsed.Model != "gpt-5-codex" || parsed.Status != "completed" {
+		t.Fatalf("unexpected parsed response metadata: %+v", parsed)
+	}
+	if len(parsed.Output) != 1 || len(parsed.Output[0].Content) != 1 || parsed.Output[0].Content[0].Text != "Hello" {
+		t.Fatalf("unexpected parsed output: %+v", parsed.Output)
+	}
+	if parsed.Usage.InputTokens != 2 || parsed.Usage.OutputTokens != 1 || parsed.Usage.TotalTokens != 3 {
+		t.Fatalf("unexpected parsed usage: %+v", parsed.Usage)
+	}
+}
+
+func TestParseCodexSSEFallsBackToDeltas(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"Hello"}`,
+		``,
+		`data: {"type":"response.output_text.delta","delta":" world"}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	parsed, err := parseCodexSSE(strings.NewReader(stream))
+	if err != nil {
+		t.Fatalf("parseCodexSSE: %v", err)
+	}
+	if len(parsed.Output) != 1 || len(parsed.Output[0].Content) != 1 || parsed.Output[0].Content[0].Text != "Hello world" {
+		t.Fatalf("unexpected parsed output: %+v", parsed.Output)
+	}
+}
+
+func TestParseCodexSSEFailedEvent(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"type":"response.failed","response":{"error":{"message":"bad stream"}}}`,
+		``,
+	}, "\n")
+
+	_, err := parseCodexSSE(strings.NewReader(stream))
+	if err == nil {
+		t.Fatalf("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "bad stream") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func writeCodexSSE(w http.ResponseWriter, events ...string) {
+	w.Header().Set("content-type", "text/event-stream")
+	for _, event := range events {
+		_, _ = w.Write([]byte("data: " + event + "\n\n"))
 	}
 }

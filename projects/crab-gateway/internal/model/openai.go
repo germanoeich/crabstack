@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -27,7 +28,7 @@ func NewOpenAIProvider(apiKey string, opts ...OpenAIOption) *OpenAIProvider {
 		apiKey:   strings.TrimSpace(apiKey),
 		endpoint: defaultOpenAIEndpoint,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 	}
 	for _, opt := range opts {
@@ -55,11 +56,17 @@ func WithOpenAIHTTPClient(client *http.Client) OpenAIOption {
 }
 
 type openAIRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openAIMessage `json:"messages"`
-	MaxTokens   int             `json:"max_tokens"`
-	Temperature float64         `json:"temperature"`
-	Tools       []openAITool    `json:"tools,omitempty"`
+	Model         string               `json:"model"`
+	Messages      []openAIMessage      `json:"messages"`
+	MaxTokens     int                  `json:"max_tokens"`
+	Temperature   float64              `json:"temperature"`
+	Stream        bool                 `json:"stream"`
+	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
+	Tools         []openAITool         `json:"tools,omitempty"`
+}
+
+type openAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAITool struct {
@@ -139,11 +146,13 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	}
 
 	payload := openAIRequest{
-		Model:       req.Model,
-		Messages:    messages,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		Tools:       buildOpenAITools(req.Tools),
+		Model:         req.Model,
+		Messages:      messages,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		Stream:        true,
+		StreamOptions: &openAIStreamOptions{IncludeUsage: true},
+		Tools:         buildOpenAITools(req.Tools),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -167,8 +176,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		return CompletionResponse{}, parseOpenAIAPIError(resp)
 	}
 
-	var parsed openAIResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
+	parsed, err := parseOpenAISSE(resp.Body)
+	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("decode openai response: %w", err)
 	}
 	if len(parsed.Choices) == 0 {
@@ -380,6 +389,171 @@ func rawJSONToString(raw json.RawMessage) string {
 func stringPtr(value string) *string {
 	v := value
 	return &v
+}
+
+type openAIChunk struct {
+	ID      string              `json:"id"`
+	Model   string              `json:"model"`
+	Choices []openAIChunkChoice `json:"choices"`
+	Usage   *openAIUsage        `json:"usage,omitempty"`
+}
+
+type openAIChunkChoice struct {
+	Index        int              `json:"index"`
+	Delta        openAIChunkDelta `json:"delta"`
+	FinishReason *string          `json:"finish_reason"`
+}
+
+type openAIChunkDelta struct {
+	Role      string                `json:"role,omitempty"`
+	Content   *string               `json:"content,omitempty"`
+	ToolCalls []openAIChunkToolCall `json:"tool_calls,omitempty"`
+}
+
+type openAIChunkToolCall struct {
+	Index    int                         `json:"index"`
+	ID       string                      `json:"id,omitempty"`
+	Type     string                      `json:"type,omitempty"`
+	Function openAIChunkToolCallFunction `json:"function,omitempty"`
+}
+
+type openAIChunkToolCallFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+func parseOpenAISSE(reader io.Reader) (openAIResponse, error) {
+	stream := bufio.NewReader(reader)
+
+	var (
+		id           string
+		model        string
+		contentText  strings.Builder
+		toolCalls    = make(map[int]*openAIToolCall)
+		finishReason string
+		usage        openAIUsage
+		seenData     bool
+	)
+
+	for {
+		line, err := stream.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return openAIResponse{}, err
+		}
+
+		trimmed := strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(trimmed, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+			if data == "[DONE]" {
+				break
+			}
+			if data == "" {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				continue
+			}
+			seenData = true
+
+			var chunk openAIChunk
+			if jsonErr := json.Unmarshal([]byte(data), &chunk); jsonErr != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				continue
+			}
+
+			if chunk.ID != "" {
+				id = chunk.ID
+			}
+			if chunk.Model != "" {
+				model = chunk.Model
+			}
+			if chunk.Usage != nil {
+				usage = *chunk.Usage
+			}
+
+			for _, choice := range chunk.Choices {
+				if choice.Delta.Content != nil {
+					contentText.WriteString(*choice.Delta.Content)
+				}
+				if choice.FinishReason != nil && *choice.FinishReason != "" {
+					finishReason = *choice.FinishReason
+				}
+				for _, tc := range choice.Delta.ToolCalls {
+					existing, ok := toolCalls[tc.Index]
+					if !ok {
+						existing = &openAIToolCall{
+							ID:   tc.ID,
+							Type: tc.Type,
+							Function: openAIToolCallFunction{
+								Name: tc.Function.Name,
+							},
+						}
+						toolCalls[tc.Index] = existing
+					} else {
+						if tc.ID != "" {
+							existing.ID = tc.ID
+						}
+						if tc.Type != "" {
+							existing.Type = tc.Type
+						}
+						if tc.Function.Name != "" {
+							existing.Function.Name = tc.Function.Name
+						}
+					}
+					existing.Function.Arguments += tc.Function.Arguments
+				}
+			}
+		}
+
+		if errors.Is(err, io.EOF) {
+			break
+		}
+	}
+
+	if !seenData {
+		return openAIResponse{}, errors.New("openai stream ended without data")
+	}
+
+	// Build accumulated tool calls slice sorted by index.
+	var accToolCalls []openAIToolCall
+	if len(toolCalls) > 0 {
+		maxIdx := 0
+		for idx := range toolCalls {
+			if idx > maxIdx {
+				maxIdx = idx
+			}
+		}
+		for i := 0; i <= maxIdx; i++ {
+			if tc, ok := toolCalls[i]; ok {
+				if tc.Type == "" {
+					tc.Type = "function"
+				}
+				accToolCalls = append(accToolCalls, *tc)
+			}
+		}
+	}
+
+	msg := openAIMessage{Role: "assistant"}
+	if text := contentText.String(); text != "" {
+		msg.Content = stringPtr(text)
+	}
+	if len(accToolCalls) > 0 {
+		msg.ToolCalls = accToolCalls
+	}
+
+	return openAIResponse{
+		ID:    id,
+		Model: model,
+		Choices: []openAIChoice{
+			{
+				Message:      msg,
+				FinishReason: finishReason,
+			},
+		},
+		Usage: usage,
+	}, nil
 }
 
 func parseOpenAIAPIError(resp *http.Response) error {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -27,7 +26,7 @@ func NewClaudeProvider(authToken string, opts ...ClaudeOption) *ClaudeProvider {
 		authToken: strings.TrimSpace(authToken),
 		endpoint:  defaultAnthropicEndpoint,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 	}
 	for _, opt := range opts {
@@ -78,6 +77,7 @@ func (p *ClaudeProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	payload := anthropicRequest{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
+		Stream:    true,
 		Messages:  messages,
 		System:    system,
 		Tools:     buildAnthropicTools(req.Tools),
@@ -107,8 +107,8 @@ func (p *ClaudeProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		return CompletionResponse{}, parseAnthropicAPIError(resp)
 	}
 
-	var parsed anthropicResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
+	parsed, err := parseAnthropicSSE(resp.Body)
+	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("decode claude response: %w", err)
 	}
 

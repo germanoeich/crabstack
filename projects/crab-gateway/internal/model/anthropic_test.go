@@ -3,12 +3,76 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 )
+
+func writeAnthropicSSE(w http.ResponseWriter, model string, contentBlocks []anthropicContentBlock, stopReason string, inputTokens, outputTokens int64) {
+	w.Header().Set("content-type", "text/event-stream")
+	flusher, _ := w.(http.Flusher)
+
+	// message_start
+	msgStart := fmt.Sprintf(`{"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","model":%q,"content":[],"stop_reason":null,"usage":{"input_tokens":%d,"output_tokens":0}}}`, model, inputTokens)
+	fmt.Fprintf(w, "event: message_start\ndata: %s\n\n", msgStart)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	for i, block := range contentBlocks {
+		switch block.Type {
+		case "text":
+			// content_block_start
+			fmt.Fprintf(w, "event: content_block_start\ndata: %s\n\n",
+				fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"text","text":""}}`, i))
+
+			// content_block_delta with text
+			escaped, _ := json.Marshal(block.Text)
+			fmt.Fprintf(w, "event: content_block_delta\ndata: %s\n\n",
+				fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"text_delta","text":%s}}`, i, string(escaped)))
+
+			// content_block_stop
+			fmt.Fprintf(w, "event: content_block_stop\ndata: %s\n\n",
+				fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, i))
+
+		case "tool_use":
+			inputJSON := "{}"
+			if len(block.Input) > 0 {
+				inputJSON = string(block.Input)
+			}
+			// content_block_start
+			fmt.Fprintf(w, "event: content_block_start\ndata: %s\n\n",
+				fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"tool_use","id":%q,"name":%q,"input":{}}}`, i, block.ID, block.Name))
+
+			// content_block_delta with input_json_delta
+			if inputJSON != "{}" {
+				escaped, _ := json.Marshal(inputJSON)
+				fmt.Fprintf(w, "event: content_block_delta\ndata: %s\n\n",
+					fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"input_json_delta","partial_json":%s}}`, i, string(escaped)))
+			}
+
+			// content_block_stop
+			fmt.Fprintf(w, "event: content_block_stop\ndata: %s\n\n",
+				fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, i))
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	// message_delta
+	fmt.Fprintf(w, "event: message_delta\ndata: %s\n\n",
+		fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q},"usage":{"output_tokens":%d}}`, stopReason, outputTokens))
+
+	// message_stop
+	fmt.Fprintf(w, "event: message_stop\ndata: %s\n\n", `{"type":"message_stop"}`)
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
 
 func TestAnthropicCompleteSuccess(t *testing.T) {
 	var seen anthropicRequest
@@ -33,16 +97,10 @@ func TestAnthropicCompleteSuccess(t *testing.T) {
 			t.Fatalf("decode request body: %v", err)
 		}
 
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"id":"msg_123",
-			"type":"message",
-			"role":"assistant",
-			"model":"claude-sonnet-4",
-			"content":[{"type":"text","text":"Hello"},{"type":"text","text":" world"}],
-			"stop_reason":"end_turn",
-			"usage":{"input_tokens":12,"output_tokens":34}
-		}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", []anthropicContentBlock{
+			{Type: "text", Text: "Hello"},
+			{Type: "text", Text: " world"},
+		}, "end_turn", 12, 34)
 	}))
 	defer server.Close()
 
@@ -70,6 +128,9 @@ func TestAnthropicCompleteSuccess(t *testing.T) {
 	}
 	if seen.MaxTokens != 256 {
 		t.Fatalf("unexpected max_tokens: %d", seen.MaxTokens)
+	}
+	if !seen.Stream {
+		t.Fatalf("expected stream=true in request")
 	}
 	if len(seen.Messages) != 1 {
 		t.Fatalf("expected one non-system message, got %d", len(seen.Messages))
@@ -107,8 +168,9 @@ func TestAnthropicCompleteRequestIncludesToolsAndToolResultMessages(t *testing.T
 		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"model":"claude-sonnet-4","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":1,"output_tokens":1},"stop_reason":"end_turn"}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", []anthropicContentBlock{
+			{Type: "text", Text: "done"},
+		}, "end_turn", 1, 1)
 	}))
 	defer server.Close()
 
@@ -173,13 +235,9 @@ func TestAnthropicCompleteRequestIncludesToolsAndToolResultMessages(t *testing.T
 
 func TestAnthropicCompleteToolUseStopReasonIsNotError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{
-			"model":"claude-sonnet-4",
-			"content":[{"type":"tool_use","id":"toolu_xxx","name":"get_time","input":{}}],
-			"stop_reason":"tool_use",
-			"usage":{"input_tokens":5,"output_tokens":2}
-		}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", []anthropicContentBlock{
+			{Type: "tool_use", ID: "toolu_xxx", Name: "get_time", Input: json.RawMessage(`{}`)},
+		}, "tool_use", 5, 2)
 	}))
 	defer server.Close()
 
@@ -213,16 +271,10 @@ func TestAnthropicCompleteToolUseStopReasonIsNotError(t *testing.T) {
 
 func TestAnthropicCompleteMixedTextAndToolUseResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{
-			"model":"claude-sonnet-4",
-			"content":[
-				{"type":"text","text":"Let me check. "},
-				{"type":"tool_use","id":"toolu_2","name":"weather","input":{"city":"SF"}}
-			],
-			"stop_reason":"tool_use",
-			"usage":{"input_tokens":5,"output_tokens":2}
-		}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", []anthropicContentBlock{
+			{Type: "text", Text: "Let me check. "},
+			{Type: "tool_use", ID: "toolu_2", Name: "weather", Input: json.RawMessage(`{"city":"SF"}`)},
+		}, "tool_use", 5, 2)
 	}))
 	defer server.Close()
 
@@ -280,8 +332,8 @@ func TestAnthropicCompleteRateLimit(t *testing.T) {
 
 func TestAnthropicCompleteMalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Return an empty body - the SSE parser will see no data
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":`))
 	}))
 	defer server.Close()
 
@@ -306,8 +358,8 @@ func TestAnthropicCompleteMalformedJSON(t *testing.T) {
 
 func TestAnthropicCompleteEmptyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"model":"claude-sonnet-4","content":[],"usage":{"input_tokens":1,"output_tokens":1}}`))
+		// Stream with no content blocks
+		writeAnthropicSSE(w, "claude-sonnet-4", nil, "end_turn", 1, 1)
 	}))
 	defer server.Close()
 

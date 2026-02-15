@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -157,7 +158,7 @@ func (p *CodexProvider) Complete(ctx context.Context, req CompletionRequest) (Co
 	payload := codexRequest{
 		Model:       req.Model,
 		Store:       false,
-		Stream:      false,
+		Stream:      true,
 		Input:       input,
 		Temperature: req.Temperature,
 	}
@@ -196,8 +197,8 @@ func (p *CodexProvider) Complete(ctx context.Context, req CompletionRequest) (Co
 		return CompletionResponse{}, parseCodexAPIError(resp)
 	}
 
-	var parsed codexResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
+	parsed, err := parseCodexSSE(resp.Body)
+	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("decode codex response: %w", err)
 	}
 
@@ -415,6 +416,305 @@ func parseCodexBlocks(output []codexOutputItem) []ContentBlock {
 		}
 	}
 	return blocks
+}
+
+type codexSSEEvent struct {
+	Type     string          `json:"type"`
+	Delta    string          `json:"delta"`
+	Response json.RawMessage `json:"response"`
+	Message  string          `json:"message"`
+	Code     string          `json:"code"`
+	Error    *codexError     `json:"error"`
+	Item     json.RawMessage `json:"item"`
+	ItemID   string          `json:"item_id"`
+}
+
+func parseCodexSSE(reader io.Reader) (codexResponse, error) {
+	stream := bufio.NewReader(reader)
+	dataLines := make([]string, 0, 4)
+	outputItems := make([]codexOutputItem, 0, 4)
+	outputItemIndexes := make(map[string]int)
+	pendingFunctionCallArguments := make(map[string]string)
+	var deltaText strings.Builder
+
+	processDataLines := func(lines []string) (*codexResponse, bool, error) {
+		if len(lines) == 0 {
+			return nil, false, nil
+		}
+
+		payload := strings.TrimSpace(strings.Join(lines, "\n"))
+		if payload == "" || payload == "[DONE]" {
+			return nil, false, nil
+		}
+
+		var event codexSSEEvent
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			return nil, false, fmt.Errorf("parse codex stream event: %w", err)
+		}
+
+		switch event.Type {
+		case "error":
+			return nil, false, fmt.Errorf("codex stream error: %s", codexSSEErrorMessage(event, payload))
+		case "response.failed":
+			return nil, false, fmt.Errorf("codex response failed: %s", codexSSEErrorMessage(event, payload))
+		case "response.completed", "response.done":
+			if len(event.Response) == 0 || string(event.Response) == "null" {
+				fallback := codexFallbackResponse(outputItems, deltaText.String())
+				if len(fallback.Output) > 0 {
+					return &fallback, true, nil
+				}
+				return nil, false, nil
+			}
+
+			var parsed codexResponse
+			if err := json.Unmarshal(event.Response, &parsed); err != nil {
+				return nil, false, fmt.Errorf("parse codex completed event: %w", err)
+			}
+			if strings.TrimSpace(parsed.Status) == "" {
+				parsed.Status = "completed"
+			}
+			return &parsed, true, nil
+		case "response.output_item.added":
+			item, itemIDs, err := codexOutputItemFromSSEEvent(event.Item)
+			if err != nil {
+				return nil, false, fmt.Errorf("parse codex output item: %w", err)
+			}
+			if item.Type == "" {
+				return nil, false, nil
+			}
+
+			if item.Type == "function_call" {
+				for _, itemID := range itemIDs {
+					if delta, ok := pendingFunctionCallArguments[itemID]; ok {
+						item.Arguments += delta
+						delete(pendingFunctionCallArguments, itemID)
+					}
+				}
+			}
+
+			outputItems = append(outputItems, item)
+			for _, itemID := range itemIDs {
+				outputItemIndexes[itemID] = len(outputItems) - 1
+			}
+		case "response.output_text.delta":
+			if event.Delta != "" {
+				deltaText.WriteString(event.Delta)
+				appendCodexOutputTextDelta(outputItems, outputItemIndexes, event.ItemID, event.Delta)
+			}
+		case "response.function_call_arguments.delta":
+			appendCodexFunctionCallArgumentsDelta(outputItems, outputItemIndexes, pendingFunctionCallArguments, event.ItemID, event.Delta)
+		}
+
+		return nil, false, nil
+	}
+
+	for {
+		line, err := stream.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return codexResponse{}, err
+		}
+
+		if len(line) > 0 {
+			trimmedLine := strings.TrimRight(line, "\r\n")
+			if trimmedLine == "" {
+				parsed, done, parseErr := processDataLines(dataLines)
+				if parseErr != nil {
+					return codexResponse{}, parseErr
+				}
+				if done && parsed != nil {
+					return *parsed, nil
+				}
+				dataLines = dataLines[:0]
+			} else if strings.HasPrefix(trimmedLine, "data:") {
+				data := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "data:"))
+				dataLines = append(dataLines, data)
+			}
+		}
+
+		if errors.Is(err, io.EOF) {
+			break
+		}
+	}
+
+	if len(dataLines) > 0 {
+		parsed, done, parseErr := processDataLines(dataLines)
+		if parseErr != nil {
+			return codexResponse{}, parseErr
+		}
+		if done && parsed != nil {
+			return *parsed, nil
+		}
+	}
+
+	fallback := codexFallbackResponse(outputItems, deltaText.String())
+	if len(fallback.Output) > 0 {
+		return fallback, nil
+	}
+
+	return codexResponse{}, errors.New("codex stream ended without completed response")
+}
+
+func codexSSEErrorMessage(event codexSSEEvent, payload string) string {
+	if message := strings.TrimSpace(event.Message); message != "" {
+		return message
+	}
+	if event.Error != nil {
+		if message := strings.TrimSpace(event.Error.Message); message != "" {
+			return message
+		}
+		if code := strings.TrimSpace(event.Error.Code); code != "" {
+			return code
+		}
+		if errorType := strings.TrimSpace(event.Error.Type); errorType != "" {
+			return errorType
+		}
+	}
+	if len(event.Response) > 0 && string(event.Response) != "null" {
+		var response struct {
+			Error codexError `json:"error"`
+		}
+		if err := json.Unmarshal(event.Response, &response); err == nil {
+			if message := strings.TrimSpace(response.Error.Message); message != "" {
+				return message
+			}
+			if code := strings.TrimSpace(response.Error.Code); code != "" {
+				return code
+			}
+			if errorType := strings.TrimSpace(response.Error.Type); errorType != "" {
+				return errorType
+			}
+		}
+	}
+	if code := strings.TrimSpace(event.Code); code != "" {
+		return code
+	}
+	if payload = strings.TrimSpace(payload); payload != "" {
+		return payload
+	}
+	return "unknown stream failure"
+}
+
+func codexOutputItemFromSSEEvent(raw json.RawMessage) (codexOutputItem, []string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return codexOutputItem{}, nil, nil
+	}
+
+	var parsed struct {
+		Type      string               `json:"type"`
+		Role      string               `json:"role"`
+		Content   []codexOutputContent `json:"content"`
+		ID        string               `json:"id"`
+		CallID    string               `json:"call_id"`
+		Name      string               `json:"name"`
+		Arguments string               `json:"arguments"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return codexOutputItem{}, nil, err
+	}
+
+	responseItemID := strings.TrimSpace(parsed.CallID)
+	if responseItemID == "" {
+		responseItemID = strings.TrimSpace(parsed.ID)
+	}
+	itemIDs := codexSSEItemIDs(parsed.ID, parsed.CallID)
+
+	return codexOutputItem{
+		Type:      parsed.Type,
+		Role:      parsed.Role,
+		Content:   parsed.Content,
+		ID:        responseItemID,
+		Name:      parsed.Name,
+		Arguments: parsed.Arguments,
+	}, itemIDs, nil
+}
+
+func codexSSEItemIDs(id, callID string) []string {
+	ids := make([]string, 0, 2)
+	if normalized := strings.TrimSpace(id); normalized != "" {
+		ids = append(ids, normalized)
+	}
+	if normalized := strings.TrimSpace(callID); normalized != "" {
+		for _, existing := range ids {
+			if existing == normalized {
+				return ids
+			}
+		}
+		ids = append(ids, normalized)
+	}
+	return ids
+}
+
+func appendCodexOutputTextDelta(output []codexOutputItem, indexes map[string]int, itemID, delta string) {
+	if delta == "" {
+		return
+	}
+	idx, ok := indexes[strings.TrimSpace(itemID)]
+	if !ok || idx < 0 || idx >= len(output) || output[idx].Type != "message" {
+		return
+	}
+
+	contentLen := len(output[idx].Content)
+	if contentLen == 0 || output[idx].Content[contentLen-1].Type != "output_text" {
+		output[idx].Content = append(output[idx].Content, codexOutputContent{Type: "output_text"})
+		contentLen = len(output[idx].Content)
+	}
+	output[idx].Content[contentLen-1].Text += delta
+}
+
+func appendCodexFunctionCallArgumentsDelta(output []codexOutputItem, indexes map[string]int, pending map[string]string, itemID, delta string) {
+	if delta == "" {
+		return
+	}
+	normalizedItemID := strings.TrimSpace(itemID)
+	if normalizedItemID == "" {
+		return
+	}
+
+	if idx, ok := indexes[normalizedItemID]; ok && idx >= 0 && idx < len(output) && output[idx].Type == "function_call" {
+		output[idx].Arguments += delta
+		return
+	}
+
+	pending[normalizedItemID] += delta
+}
+
+func codexFallbackResponse(output []codexOutputItem, text string) codexResponse {
+	response := codexResponse{Status: "completed"}
+	if len(output) > 0 {
+		if text != "" && !codexOutputHasText(output) {
+			output = append(output, codexOutputItem{
+				Type:    "message",
+				Role:    "assistant",
+				Content: []codexOutputContent{{Type: "output_text", Text: text}},
+			})
+		}
+		response.Output = output
+		return response
+	}
+
+	if text != "" {
+		response.Output = []codexOutputItem{{
+			Type:    "message",
+			Role:    "assistant",
+			Content: []codexOutputContent{{Type: "output_text", Text: text}},
+		}}
+	}
+
+	return response
+}
+
+func codexOutputHasText(output []codexOutputItem) bool {
+	for _, item := range output {
+		if item.Type != "message" {
+			continue
+		}
+		for _, content := range item.Content {
+			if content.Type == "output_text" && content.Text != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func codexText(blocks []ContentBlock) string {

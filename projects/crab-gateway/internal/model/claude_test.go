@@ -42,16 +42,10 @@ func TestClaudeCompleteSuccess(t *testing.T) {
 			t.Fatalf("decode request body: %v", err)
 		}
 
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"id":"msg_123",
-			"type":"message",
-			"role":"assistant",
-			"model":"claude-sonnet-4",
-			"content":[{"type":"text","text":"Hello"},{"type":"text","text":" world"}],
-			"stop_reason":"end_turn",
-			"usage":{"input_tokens":12,"output_tokens":34}
-		}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", []anthropicContentBlock{
+			{Type: "text", Text: "Hello"},
+			{Type: "text", Text: " world"},
+		}, "end_turn", 12, 34)
 	}))
 	defer server.Close()
 
@@ -79,6 +73,9 @@ func TestClaudeCompleteSuccess(t *testing.T) {
 	}
 	if seen.MaxTokens != 256 {
 		t.Fatalf("unexpected max_tokens: %d", seen.MaxTokens)
+	}
+	if !seen.Stream {
+		t.Fatalf("expected stream=true in request")
 	}
 	if len(seen.Messages) != 1 {
 		t.Fatalf("expected one non-system message, got %d", len(seen.Messages))
@@ -116,8 +113,9 @@ func TestClaudeCompleteRequestIncludesToolsAndToolResultMessages(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"model":"claude-sonnet-4","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":1,"output_tokens":1},"stop_reason":"end_turn"}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", []anthropicContentBlock{
+			{Type: "text", Text: "done"},
+		}, "end_turn", 1, 1)
 	}))
 	defer server.Close()
 
@@ -182,13 +180,9 @@ func TestClaudeCompleteRequestIncludesToolsAndToolResultMessages(t *testing.T) {
 
 func TestClaudeCompleteToolUseStopReasonIsNotError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{
-			"model":"claude-sonnet-4",
-			"content":[{"type":"tool_use","id":"toolu_xxx","name":"get_time","input":{}}],
-			"stop_reason":"tool_use",
-			"usage":{"input_tokens":5,"output_tokens":2}
-		}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", []anthropicContentBlock{
+			{Type: "tool_use", ID: "toolu_xxx", Name: "get_time", Input: json.RawMessage(`{}`)},
+		}, "tool_use", 5, 2)
 	}))
 	defer server.Close()
 
@@ -222,16 +216,10 @@ func TestClaudeCompleteToolUseStopReasonIsNotError(t *testing.T) {
 
 func TestClaudeCompleteMixedTextAndToolUseResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{
-			"model":"claude-sonnet-4",
-			"content":[
-				{"type":"text","text":"Let me check. "},
-				{"type":"tool_use","id":"toolu_2","name":"weather","input":{"city":"SF"}}
-			],
-			"stop_reason":"tool_use",
-			"usage":{"input_tokens":5,"output_tokens":2}
-		}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", []anthropicContentBlock{
+			{Type: "text", Text: "Let me check. "},
+			{Type: "tool_use", ID: "toolu_2", Name: "weather", Input: json.RawMessage(`{"city":"SF"}`)},
+		}, "tool_use", 5, 2)
 	}))
 	defer server.Close()
 
@@ -290,7 +278,6 @@ func TestClaudeCompleteRateLimit(t *testing.T) {
 func TestClaudeCompleteMalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":`))
 	}))
 	defer server.Close()
 
@@ -315,8 +302,7 @@ func TestClaudeCompleteMalformedJSON(t *testing.T) {
 
 func TestClaudeCompleteEmptyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"model":"claude-sonnet-4","content":[],"usage":{"input_tokens":1,"output_tokens":1}}`))
+		writeAnthropicSSE(w, "claude-sonnet-4", nil, "end_turn", 1, 1)
 	}))
 	defer server.Close()
 

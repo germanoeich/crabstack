@@ -93,11 +93,8 @@ func TestServiceProcessEvent_ChannelMessageUsesLLMResponse(t *testing.T) {
 	if len(resp.Content) == 0 || resp.Content[0].Text != "hello from model" {
 		t.Fatalf("unexpected response content: %+v", resp.Content)
 	}
-	if len(resp.Actions) == 0 {
-		t.Fatalf("expected send action")
-	}
-	if got, _ := resp.Actions[0].Args["text"].(string); got != "hello from model" {
-		t.Fatalf("unexpected send_message args text: %q", got)
+	if len(resp.Actions) != 0 {
+		t.Fatalf("expected no actions, got: %+v", resp.Actions)
 	}
 	if resp.Usage == nil {
 		t.Fatalf("expected usage payload")

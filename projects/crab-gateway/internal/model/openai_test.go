@@ -3,12 +3,66 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 )
+
+func writeOpenAISSE(w http.ResponseWriter, id, model string, message openAIMessage, finishReason string, promptTokens, completionTokens int64) {
+	w.Header().Set("content-type", "text/event-stream")
+	flusher, _ := w.(http.Flusher)
+
+	// First chunk: role
+	fmt.Fprintf(w, "data: %s\n\n",
+		fmt.Sprintf(`{"id":%q,"object":"chat.completion.chunk","model":%q,"choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`, id, model))
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	// Content chunks
+	if message.Content != nil && *message.Content != "" {
+		escaped, _ := json.Marshal(*message.Content)
+		fmt.Fprintf(w, "data: %s\n\n",
+			fmt.Sprintf(`{"id":%q,"object":"chat.completion.chunk","model":%q,"choices":[{"index":0,"delta":{"content":%s},"finish_reason":null}]}`, id, model, string(escaped)))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	// Tool call chunks
+	for _, tc := range message.ToolCalls {
+		// First chunk: id + name
+		nameJSON, _ := json.Marshal(tc.Function.Name)
+		fmt.Fprintf(w, "data: %s\n\n",
+			fmt.Sprintf(`{"id":%q,"object":"chat.completion.chunk","model":%q,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":%q,"type":"function","function":{"name":%s,"arguments":""}}]},"finish_reason":null}]}`,
+				id, model, tc.ID, string(nameJSON)))
+		if flusher != nil {
+			flusher.Flush()
+		}
+
+		// Second chunk: arguments
+		argsJSON, _ := json.Marshal(tc.Function.Arguments)
+		fmt.Fprintf(w, "data: %s\n\n",
+			fmt.Sprintf(`{"id":%q,"object":"chat.completion.chunk","model":%q,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":%s}}]},"finish_reason":null}]}`,
+				id, model, string(argsJSON)))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	// Final chunk: finish_reason + usage
+	fmt.Fprintf(w, "data: %s\n\n",
+		fmt.Sprintf(`{"id":%q,"object":"chat.completion.chunk","model":%q,"choices":[{"index":0,"delta":{},"finish_reason":%q}],"usage":{"prompt_tokens":%d,"completion_tokens":%d}}`,
+			id, model, finishReason, promptTokens, completionTokens))
+
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
 
 func TestOpenAICompleteSuccess(t *testing.T) {
 	var seen openAIRequest
@@ -29,13 +83,9 @@ func TestOpenAICompleteSuccess(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"id":"chatcmpl_1",
-			"model":"gpt-4o-mini",
-			"choices":[{"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],
-			"usage":{"prompt_tokens":11,"completion_tokens":5}
-		}`))
+		writeOpenAISSE(w, "chatcmpl_1", "gpt-4o-mini",
+			openAIMessage{Content: stringPtr("pong")},
+			"stop", 11, 5)
 	}))
 	defer server.Close()
 
@@ -66,6 +116,9 @@ func TestOpenAICompleteSuccess(t *testing.T) {
 	}
 	if seen.Temperature != 0.2 {
 		t.Fatalf("unexpected temperature: %v", seen.Temperature)
+	}
+	if !seen.Stream {
+		t.Fatalf("expected stream=true in request")
 	}
 	if len(seen.Messages) != 2 {
 		t.Fatalf("expected two messages, got %d", len(seen.Messages))
@@ -100,8 +153,9 @@ func TestOpenAICompleteRequestIncludesToolsAndToolResultMessages(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+		writeOpenAISSE(w, "chatcmpl_2", "gpt-4o-mini",
+			openAIMessage{Content: stringPtr("done")},
+			"stop", 1, 1)
 	}))
 	defer server.Close()
 
@@ -169,23 +223,20 @@ func TestOpenAICompleteRequestIncludesToolsAndToolResultMessages(t *testing.T) {
 
 func TestOpenAICompleteToolCallsResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{
-			"model":"gpt-4o-mini",
-			"choices":[{
-				"message":{
-					"role":"assistant",
-					"content":null,
-					"tool_calls":[{
-						"id":"call_xxx",
-						"type":"function",
-						"function":{"name":"get_time","arguments":"{}"}
-					}]
+		writeOpenAISSE(w, "chatcmpl_3", "gpt-4o-mini",
+			openAIMessage{
+				ToolCalls: []openAIToolCall{
+					{
+						ID:   "call_xxx",
+						Type: "function",
+						Function: openAIToolCallFunction{
+							Name:      "get_time",
+							Arguments: "{}",
+						},
+					},
 				},
-				"finish_reason":"tool_calls"
-			}],
-			"usage":{"prompt_tokens":11,"completion_tokens":5}
-		}`))
+			},
+			"tool_calls", 11, 5)
 	}))
 	defer server.Close()
 
@@ -246,7 +297,7 @@ func TestOpenAICompleteRateLimit(t *testing.T) {
 func TestOpenAICompleteMalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":`))
+		// Empty body — SSE parser sees no data
 	}))
 	defer server.Close()
 
@@ -271,8 +322,10 @@ func TestOpenAICompleteMalformedJSON(t *testing.T) {
 
 func TestOpenAICompleteEmptyChoices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+		// Send a stream with no content and no finish_reason — will produce empty choices
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"chatcmpl_x","model":"gpt-4o-mini","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
 
@@ -288,17 +341,20 @@ func TestOpenAICompleteEmptyChoices(t *testing.T) {
 		Messages:  []Message{{Role: RoleUser, Content: "hi"}},
 	})
 	if err == nil {
-		t.Fatalf("expected empty choices error")
+		t.Fatalf("expected empty content error")
 	}
-	if !strings.Contains(err.Error(), "contained no choices") {
+	// The SSE parser will produce a response with one choice (accumulated), but
+	// with no text and no tool calls, so it'll hit "contained no content"
+	if !strings.Contains(err.Error(), "contained no content") && !strings.Contains(err.Error(), "contained no choices") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestOpenAICompleteEmptyContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+		writeOpenAISSE(w, "chatcmpl_x", "gpt-4o-mini",
+			openAIMessage{Content: stringPtr("")},
+			"stop", 1, 1)
 	}))
 	defer server.Close()
 

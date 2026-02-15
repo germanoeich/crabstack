@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -30,7 +31,7 @@ func NewAnthropicProvider(apiKey string, opts ...AnthropicOption) *AnthropicProv
 		apiKey:   strings.TrimSpace(apiKey),
 		endpoint: defaultAnthropicEndpoint,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 	}
 	for _, opt := range opts {
@@ -60,6 +61,7 @@ func WithAnthropicHTTPClient(client *http.Client) AnthropicOption {
 type anthropicRequest struct {
 	Model     string             `json:"model"`
 	MaxTokens int                `json:"max_tokens"`
+	Stream    bool               `json:"stream"`
 	Messages  []anthropicMessage `json:"messages"`
 	System    string             `json:"system,omitempty"`
 	Tools     []anthropicTool    `json:"tools,omitempty"`
@@ -186,6 +188,7 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	payload := anthropicRequest{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
+		Stream:    true,
 		Messages:  messages,
 		System:    system,
 		Tools:     buildAnthropicTools(req.Tools),
@@ -213,8 +216,8 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 		return CompletionResponse{}, parseAnthropicAPIError(resp)
 	}
 
-	var parsed anthropicResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
+	parsed, err := parseAnthropicSSE(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("decode anthropic response: %w", err)
 	}
 
@@ -391,6 +394,276 @@ func cloneRawMessageOrObject(raw json.RawMessage) json.RawMessage {
 	copied := make(json.RawMessage, len(trimmed))
 	copy(copied, trimmed)
 	return copied
+}
+
+type anthropicSSEEvent struct {
+	Type         string                  `json:"type"`
+	Index        int                     `json:"index"`
+	Message      *anthropicSSEMessage    `json:"message"`
+	ContentBlock *anthropicContentBlock  `json:"content_block"`
+	Delta        *anthropicSSEDelta      `json:"delta"`
+	Usage        *anthropicUsage         `json:"usage"`
+	Error        *anthropicError         `json:"error"`
+}
+
+type anthropicSSEMessage struct {
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Role       string         `json:"role"`
+	Model      string         `json:"model"`
+	StopReason string         `json:"stop_reason"`
+	Usage      anthropicUsage `json:"usage"`
+}
+
+type anthropicSSEDelta struct {
+	Type        string `json:"type"`
+	Text        string `json:"text"`
+	PartialJSON string `json:"partial_json"`
+	StopReason  string `json:"stop_reason"`
+}
+
+func parseAnthropicSSE(reader io.Reader) (anthropicResponse, error) {
+	stream := bufio.NewReader(reader)
+	content := make([]anthropicContentBlock, 0, 4)
+	toolInputDeltas := make(map[int]*strings.Builder)
+	dataLines := make([]string, 0, 4)
+	eventType := ""
+	seenData := false
+	parsed := anthropicResponse{}
+
+	ensureIndex := func(index int) error {
+		if index < 0 {
+			return fmt.Errorf("anthropic stream content block index out of range: %d", index)
+		}
+		if index >= len(content) {
+			content = append(content, make([]anthropicContentBlock, index-len(content)+1)...)
+		}
+		return nil
+	}
+
+	finalizeToolInput := func(index int) error {
+		builder := toolInputDeltas[index]
+		if builder == nil || builder.Len() == 0 {
+			return nil
+		}
+		raw := strings.TrimSpace(builder.String())
+		delete(toolInputDeltas, index)
+		if raw == "" {
+			return nil
+		}
+
+		if err := ensureIndex(index); err != nil {
+			return err
+		}
+		var input json.RawMessage
+		if err := json.Unmarshal([]byte(raw), &input); err != nil {
+			return fmt.Errorf("parse anthropic tool_use input at index %d: %w", index, err)
+		}
+		content[index].Input = cloneRawMessage(input)
+		return nil
+	}
+
+	processDataLines := func(name string, lines []string) (bool, error) {
+		if len(lines) == 0 {
+			return false, nil
+		}
+
+		payload := strings.TrimSpace(strings.Join(lines, "\n"))
+		if payload == "" || payload == "[DONE]" {
+			return false, nil
+		}
+		seenData = true
+
+		var event anthropicSSEEvent
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			return false, fmt.Errorf("parse anthropic stream event: %w", err)
+		}
+
+		kind := strings.TrimSpace(event.Type)
+		if kind == "" {
+			kind = strings.TrimSpace(name)
+		}
+
+		switch kind {
+		case "message_start":
+			if event.Message != nil {
+				if id := strings.TrimSpace(event.Message.ID); id != "" {
+					parsed.ID = id
+				}
+				if messageType := strings.TrimSpace(event.Message.Type); messageType != "" {
+					parsed.Type = messageType
+				}
+				if role := strings.TrimSpace(event.Message.Role); role != "" {
+					parsed.Role = role
+				}
+				if model := strings.TrimSpace(event.Message.Model); model != "" {
+					parsed.Model = model
+				}
+				if stopReason := strings.TrimSpace(event.Message.StopReason); stopReason != "" {
+					parsed.StopReason = stopReason
+				}
+				if event.Message.Usage.InputTokens != 0 || parsed.Usage.InputTokens == 0 {
+					parsed.Usage.InputTokens = event.Message.Usage.InputTokens
+				}
+				if event.Message.Usage.OutputTokens != 0 {
+					parsed.Usage.OutputTokens = event.Message.Usage.OutputTokens
+				}
+			}
+		case "content_block_start":
+			if err := ensureIndex(event.Index); err != nil {
+				return false, err
+			}
+			if event.ContentBlock != nil {
+				block := *event.ContentBlock
+				block.Input = cloneRawMessage(block.Input)
+				content[event.Index] = block
+			}
+		case "content_block_delta":
+			if err := ensureIndex(event.Index); err != nil {
+				return false, err
+			}
+			if event.Delta == nil {
+				break
+			}
+
+			block := content[event.Index]
+			switch event.Delta.Type {
+			case "text_delta":
+				if strings.TrimSpace(block.Type) == "" {
+					block.Type = "text"
+				}
+				block.Text += event.Delta.Text
+				content[event.Index] = block
+			case "input_json_delta":
+				if strings.TrimSpace(block.Type) == "" {
+					block.Type = "tool_use"
+				}
+				builder := toolInputDeltas[event.Index]
+				if builder == nil {
+					builder = &strings.Builder{}
+					toolInputDeltas[event.Index] = builder
+				}
+				builder.WriteString(event.Delta.PartialJSON)
+				content[event.Index] = block
+			}
+		case "content_block_stop":
+			if err := finalizeToolInput(event.Index); err != nil {
+				return false, err
+			}
+		case "message_delta":
+			if event.Delta != nil {
+				if stopReason := strings.TrimSpace(event.Delta.StopReason); stopReason != "" {
+					parsed.StopReason = stopReason
+				}
+			}
+			if event.Usage != nil {
+				if event.Usage.InputTokens != 0 {
+					parsed.Usage.InputTokens = event.Usage.InputTokens
+				}
+				if event.Usage.OutputTokens != 0 || parsed.Usage.OutputTokens == 0 {
+					parsed.Usage.OutputTokens = event.Usage.OutputTokens
+				}
+			}
+		case "message_stop":
+			for index := range toolInputDeltas {
+				if err := finalizeToolInput(index); err != nil {
+					return false, err
+				}
+			}
+			parsed.Content = compactAnthropicContent(content)
+			return true, nil
+		case "error":
+			return false, fmt.Errorf("anthropic stream error: %s", anthropicSSEErrorMessage(event, payload))
+		}
+
+		return false, nil
+	}
+
+	for {
+		line, err := stream.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return anthropicResponse{}, err
+		}
+
+		if len(line) > 0 {
+			trimmedLine := strings.TrimRight(line, "\r\n")
+			if trimmedLine == "" {
+				done, parseErr := processDataLines(eventType, dataLines)
+				if parseErr != nil {
+					return anthropicResponse{}, parseErr
+				}
+				if done {
+					return parsed, nil
+				}
+				eventType = ""
+				dataLines = dataLines[:0]
+			} else if strings.HasPrefix(trimmedLine, "event:") {
+				eventType = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "event:"))
+			} else if strings.HasPrefix(trimmedLine, "data:") {
+				dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(trimmedLine, "data:")))
+			}
+		}
+
+		if errors.Is(err, io.EOF) {
+			break
+		}
+	}
+
+	if len(dataLines) > 0 {
+		done, parseErr := processDataLines(eventType, dataLines)
+		if parseErr != nil {
+			return anthropicResponse{}, parseErr
+		}
+		if done {
+			return parsed, nil
+		}
+	}
+
+	for index := range toolInputDeltas {
+		if err := finalizeToolInput(index); err != nil {
+			return anthropicResponse{}, err
+		}
+	}
+
+	parsed.Content = compactAnthropicContent(content)
+	if seenData || len(parsed.Content) > 0 || parsed.ID != "" || parsed.Model != "" || parsed.StopReason != "" || parsed.Usage.InputTokens != 0 || parsed.Usage.OutputTokens != 0 {
+		return parsed, nil
+	}
+
+	return anthropicResponse{}, errors.New("anthropic stream ended without data")
+}
+
+func compactAnthropicContent(blocks []anthropicContentBlock) []anthropicContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	compacted := make([]anthropicContentBlock, 0, len(blocks))
+	for _, block := range blocks {
+		if strings.TrimSpace(block.Type) == "" {
+			continue
+		}
+		block.Input = cloneRawMessage(block.Input)
+		compacted = append(compacted, block)
+	}
+	if len(compacted) == 0 {
+		return nil
+	}
+	return compacted
+}
+
+func anthropicSSEErrorMessage(event anthropicSSEEvent, payload string) string {
+	if event.Error != nil {
+		if message := strings.TrimSpace(event.Error.Message); message != "" {
+			return message
+		}
+		if errorType := strings.TrimSpace(event.Error.Type); errorType != "" {
+			return errorType
+		}
+	}
+	if payload = strings.TrimSpace(payload); payload != "" {
+		return payload
+	}
+	return "unknown stream failure"
 }
 
 func parseAnthropicAPIError(resp *http.Response) error {
