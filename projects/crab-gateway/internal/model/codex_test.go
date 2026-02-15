@@ -76,10 +76,7 @@ func TestCodexCompleteSuccess(t *testing.T) {
 	if !seen.Stream {
 		t.Fatalf("expected stream=true")
 	}
-	if seen.Temperature != 0.2 {
-		t.Fatalf("unexpected temperature: %v", seen.Temperature)
-	}
-	if seen.Instructions != "You are concise.\n\nAlways return plain text." {
+if seen.Instructions != "You are concise.\n\nAlways return plain text." {
 		t.Fatalf("unexpected instructions: %q", seen.Instructions)
 	}
 	if len(seen.Input) != 1 {

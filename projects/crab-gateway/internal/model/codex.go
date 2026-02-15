@@ -71,7 +71,7 @@ type codexRequest struct {
 	Tools             []codexTool      `json:"tools,omitempty"`
 	ToolChoice        string           `json:"tool_choice,omitempty"`
 	ParallelToolCalls bool             `json:"parallel_tool_calls,omitempty"`
-	Temperature       float64          `json:"temperature"`
+	Temperature       float64          `json:"temperature,omitempty"`
 }
 
 type codexTool struct {
@@ -156,11 +156,10 @@ func (p *CodexProvider) Complete(ctx context.Context, req CompletionRequest) (Co
 	}
 
 	payload := codexRequest{
-		Model:       req.Model,
-		Store:       false,
-		Stream:      true,
-		Input:       input,
-		Temperature: req.Temperature,
+		Model:  req.Model,
+		Store:  false,
+		Stream: true,
+		Input:  input,
 	}
 	if strings.TrimSpace(instructions) != "" {
 		payload.Instructions = instructions
