@@ -21,9 +21,10 @@ Core behavior:
 - `gateway-core`: routing, sessions, turn execution, outbox/event dispatch.
 - `ingress adapters` (`http`, `ws`): normalize inbound messages into the canonical event envelope.
 - `admin socket adapters`: local control-plane operations (pairing and maintenance).
-- `channel listeners`: platform adapters for Discord/WhatsApp/etc.
+- `channel listeners`: platform adapters for Discord/WhatsApp/etc that publish `channel.message.*`.
+- `discord service` (`crab-discord`): Discord inbound listener + outbound webhook consumer.
 - `memory service`: subscriber ingest plus optional tool host.
-- `cron service`: emits scheduled events and exposes `cron.*` tools.
+- `cron service` (`crab-cron`): emits scheduled events and exposes `cron.*` tools.
 - `crab-cli`: operator-side control-plane client through the admin socket.
 
 ## Operational model
@@ -55,5 +56,6 @@ Memory scoping is explicit:
 1. Stand up shared contracts and gateway persistence.
 2. Enable HTTP ingress and basic routing.
 3. Add model providers.
-4. Pair and attach tool hosts (memory, cron).
-5. Expand to additional listeners and WS ingress.
+4. Pair and attach tool hosts (memory, cron, custom tools).
+5. Add Discord listener/consumer wiring and validate end-to-end channel routing.
+6. Expand to additional listeners and WS ingress.

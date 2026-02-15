@@ -5,12 +5,15 @@ description: Endpoint contracts, schemas, retries, and error handling for non-MC
 
 Crabstack uses a non-MCP remote tool protocol for memory, cron, and custom tool hosts.
 
+For `crab-cron`-specific behavior, see [Cron Service](./cron.mdx).
+
 ## Transport and trust
 
 - Local: Unix domain socket.
 - Remote: mTLS only.
 - Pairing trigger is control-plane only via gateway admin Unix socket (not public ingress).
-- Runtime calls to `/v1/tools/*` must be denied until pairing succeeds.
+- Runtime calls to `/v1/tools/*` should be denied until pairing succeeds.
+- Current gateway URL-discovery path (`CRAB_GATEWAY_TOOL_HOST_URLS`) is direct HTTP(S) routing and does not enforce pairing in that path yet.
 
 Pairing command grammar used by operators:
 

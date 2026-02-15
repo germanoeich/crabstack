@@ -1,0 +1,83 @@
+---
+title: Cron Service (Integrations)
+description: crab-cron wire contracts, scheduler semantics, and tool handler behavior.
+---
+
+This page documents current `crab-cron` integration behavior.
+
+## Service surface
+
+- Event producer to gateway: `POST /v1/events` (canonical `EventEnvelope`).
+- Tool host endpoints:
+  - `GET /healthz`
+  - `GET /v1/tools`
+  - `POST /v1/tools/call`
+- Registered tools:
+  - `cron.list`
+  - `cron.create`
+  - `cron.remove`
+
+## Scheduler semantics
+
+- Scheduler evaluation interval: once per second.
+- Duplicate suppression: a job fires at most once per minute (`job_id + minute` key).
+- Cron parser supports 5-field expressions:
+  - minute (0-59)
+  - hour (0-23)
+  - day-of-month (1-31)
+  - month (1-12)
+  - day-of-week (0-6)
+- Supported field patterns: `*`, `*/n`, `a-b`, comma lists, single integers.
+
+## Event mapping
+
+Default emitted event type:
+- `cron.triggered`
+
+Optional emitted event type:
+- `heartbeat.tick` (when job `event_type` is set accordingly)
+
+Event source fields:
+- `source.component_type=cron`
+- `source.component_id=crab-cron`
+- `source.transport=http`
+
+`cron.triggered` payload fields:
+- `job_id`
+- `job_name`
+- `scheduled_for`
+- `triggered_at`
+- `input`
+- `reason` (`scheduled_task` or `heartbeat`)
+
+Routing and tenancy:
+- `tenant_id` from job definition.
+- `routing.agent_id` from job definition.
+- `routing.session_id` from job definition.
+
+## Tool handler behavior
+
+`cron.list`:
+- Input args: empty object.
+- Output: `{ "jobs": [...] }`.
+
+`cron.create`:
+- Required args: `name`, `schedule`.
+- Optional args: `event_type`, `input`.
+- Validates cron expression before create.
+- Requires tool call scope fields:
+  - `tenant_id`
+  - `context.agent_id`
+  - `context.session_id`
+- Defaults `event_type` to `cron.triggered` when omitted.
+
+`cron.remove`:
+- Required args: `job_id`.
+- Missing/unknown job returns `INVALID_ARGS` (`job not found`).
+
+## Current implementation constraints
+
+- Job storage is in-memory (`MemoryJobStore`), so process restart drops jobs.
+- `CRAB_CRON_DB_PATH` config exists but is not yet used for persistence.
+- Gateway connectivity is configured with `CRAB_GATEWAY_TOOL_HOST_URLS` + HTTP endpoint, not admin-socket pairing flow.
+- Security spec expects mTLS for remote links; current `crab-cron` transport surface is plain HTTP, so cross-host deployments should enforce mTLS externally.

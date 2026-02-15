@@ -23,20 +23,29 @@ type fileConfig struct {
 }
 
 type fileGatewayConfig struct {
-	HTTPAddr                         string `yaml:"http_addr"`
-	DBDriver                         string `yaml:"db_driver"`
-	DBDSN                            string `yaml:"db_dsn"`
-	GatewayID                        string `yaml:"gateway_id"`
-	KeyDir                           string `yaml:"key_dir"`
-	AdminSocketPath                  string `yaml:"admin_socket_path"`
-	PairTimeout                      string `yaml:"pair_timeout"`
-	PairRequireMTLSRemote            *bool  `yaml:"pair_require_mtls_remote"`
-	PairAllowInsecureLoopbackPairing *bool  `yaml:"pair_allow_insecure_loopback_pairing"`
-	PairMTLSCAFile                   string `yaml:"pair_mtls_ca_file"`
-	PairMTLSClientCertFile           string `yaml:"pair_mtls_cert_file"`
-	PairMTLSClientPrivateKeyFile     string `yaml:"pair_mtls_key_file"`
-	AnthropicAPIKey                  string `yaml:"anthropic_api_key"`
-	OpenAIAPIKey                     string `yaml:"openai_api_key"`
+	HTTPAddr                         string                   `yaml:"http_addr"`
+	DBDriver                         string                   `yaml:"db_driver"`
+	DBDSN                            string                   `yaml:"db_dsn"`
+	GatewayID                        string                   `yaml:"gateway_id"`
+	KeyDir                           string                   `yaml:"key_dir"`
+	AdminSocketPath                  string                   `yaml:"admin_socket_path"`
+	PairTimeout                      string                   `yaml:"pair_timeout"`
+	PairRequireMTLSRemote            *bool                    `yaml:"pair_require_mtls_remote"`
+	PairAllowInsecureLoopbackPairing *bool                    `yaml:"pair_allow_insecure_loopback_pairing"`
+	PairMTLSCAFile                   string                   `yaml:"pair_mtls_ca_file"`
+	PairMTLSClientCertFile           string                   `yaml:"pair_mtls_cert_file"`
+	PairMTLSClientPrivateKeyFile     string                   `yaml:"pair_mtls_key_file"`
+	Agents                           []fileGatewayAgentConfig `yaml:"agents"`
+	AnthropicAPIKey                  string                   `yaml:"anthropic_api_key"`
+	OpenAIAPIKey                     string                   `yaml:"openai_api_key"`
+}
+
+type fileGatewayAgentConfig struct {
+	Name         string   `yaml:"name"`
+	Model        string   `yaml:"model"`
+	Channels     []string `yaml:"channels"`
+	Users        []string `yaml:"users"`
+	WorkspaceDir string   `yaml:"workspace_dir"`
 }
 
 type fileCLIConfig struct {

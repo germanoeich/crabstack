@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ const (
 	EnvGatewayPairMTLSCAFile               = "CRAB_GATEWAY_PAIR_MTLS_CA_FILE"
 	EnvGatewayPairMTLSCertFile             = "CRAB_GATEWAY_PAIR_MTLS_CERT_FILE"
 	EnvGatewayPairMTLSKeyFile              = "CRAB_GATEWAY_PAIR_MTLS_KEY_FILE"
+	EnvGatewayAgentsJSON                   = "CRAB_GATEWAY_AGENTS_JSON"
 	EnvGatewayAnthropicAPIKey              = "ANTHROPIC_API_KEY"
 	EnvGatewayOpenAIAPIKey                 = "OPENAI_API_KEY"
 )
@@ -48,8 +50,17 @@ type GatewayConfig struct {
 	PairMTLSCAFile               string
 	PairMTLSClientCertFile       string
 	PairMTLSClientPrivateKeyFile string
+	Agents                       []GatewayAgentConfig
 	AnthropicAPIKey              string
 	OpenAIAPIKey                 string
+}
+
+type GatewayAgentConfig struct {
+	Name         string
+	Model        string
+	Channels     []string
+	Users        []string
+	WorkspaceDir string
 }
 
 func GatewayFromEnv() GatewayConfig {
@@ -129,6 +140,31 @@ func applyGatewayYAML(cfg *GatewayConfig, source fileGatewayConfig) error {
 	if value := strings.TrimSpace(source.PairMTLSClientPrivateKeyFile); value != "" {
 		cfg.PairMTLSClientPrivateKeyFile = value
 	}
+	if len(source.Agents) > 0 {
+		cfg.Agents = make([]GatewayAgentConfig, 0, len(source.Agents))
+		for _, sourceAgent := range source.Agents {
+			agent := GatewayAgentConfig{
+				Name:         strings.TrimSpace(sourceAgent.Name),
+				Model:        strings.TrimSpace(sourceAgent.Model),
+				WorkspaceDir: strings.TrimSpace(sourceAgent.WorkspaceDir),
+			}
+			for _, channel := range sourceAgent.Channels {
+				trimmed := strings.TrimSpace(channel)
+				if trimmed == "" {
+					continue
+				}
+				agent.Channels = append(agent.Channels, trimmed)
+			}
+			for _, user := range sourceAgent.Users {
+				trimmed := strings.TrimSpace(user)
+				if trimmed == "" {
+					continue
+				}
+				agent.Users = append(agent.Users, trimmed)
+			}
+			cfg.Agents = append(cfg.Agents, agent)
+		}
+	}
 	if value := strings.TrimSpace(source.AnthropicAPIKey); value != "" {
 		cfg.AnthropicAPIKey = value
 	}
@@ -158,6 +194,12 @@ func applyGatewayEnv(cfg *GatewayConfig) {
 	cfg.PairMTLSCAFile = EnvOrDefault(EnvGatewayPairMTLSCAFile, cfg.PairMTLSCAFile)
 	cfg.PairMTLSClientCertFile = EnvOrDefault(EnvGatewayPairMTLSCertFile, cfg.PairMTLSClientCertFile)
 	cfg.PairMTLSClientPrivateKeyFile = EnvOrDefault(EnvGatewayPairMTLSKeyFile, cfg.PairMTLSClientPrivateKeyFile)
+	if raw := EnvString(EnvGatewayAgentsJSON); raw != "" {
+		var envAgents []GatewayAgentConfig
+		if err := json.Unmarshal([]byte(raw), &envAgents); err == nil {
+			cfg.Agents = envAgents
+		}
+	}
 	cfg.AnthropicAPIKey = EnvOrDefault(EnvGatewayAnthropicAPIKey, cfg.AnthropicAPIKey)
 	cfg.OpenAIAPIKey = EnvOrDefault(EnvGatewayOpenAIAPIKey, cfg.OpenAIAPIKey)
 }
@@ -185,6 +227,36 @@ func (c GatewayConfig) Validate() error {
 	}
 	if c.PairTimeout <= 0 {
 		return fmt.Errorf("%s must be > 0", EnvGatewayPairTimeout)
+	}
+	seenAgentNames := make(map[string]struct{}, len(c.Agents))
+	for index, agent := range c.Agents {
+		name := strings.TrimSpace(agent.Name)
+		if name == "" {
+			return fmt.Errorf("gateway.agents[%d].name must not be empty", index)
+		}
+		model := strings.TrimSpace(agent.Model)
+		if model == "" {
+			return fmt.Errorf("gateway.agents[%d].model must not be empty", index)
+		}
+		providerName, modelName, ok := strings.Cut(model, "/")
+		if !ok || strings.TrimSpace(providerName) == "" || strings.TrimSpace(modelName) == "" {
+			return fmt.Errorf("gateway.agents[%d].model must use provider/model format", index)
+		}
+		normalizedName := strings.ToLower(name)
+		if _, exists := seenAgentNames[normalizedName]; exists {
+			return fmt.Errorf("gateway.agents contains duplicate name %q", name)
+		}
+		seenAgentNames[normalizedName] = struct{}{}
+		for channelIndex, channel := range agent.Channels {
+			if strings.TrimSpace(channel) == "" {
+				return fmt.Errorf("gateway.agents[%d].channels[%d] must not be empty", index, channelIndex)
+			}
+		}
+		for userIndex, user := range agent.Users {
+			if strings.TrimSpace(user) == "" {
+				return fmt.Errorf("gateway.agents[%d].users[%d] must not be empty", index, userIndex)
+			}
+		}
 	}
 
 	mtlsFieldsSet := 0

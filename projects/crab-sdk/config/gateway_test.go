@@ -23,6 +23,7 @@ func TestGatewayFromEnv_Default(t *testing.T) {
 	t.Setenv(EnvGatewayPairMTLSCAFile, "")
 	t.Setenv(EnvGatewayPairMTLSCertFile, "")
 	t.Setenv(EnvGatewayPairMTLSKeyFile, "")
+	t.Setenv(EnvGatewayAgentsJSON, "")
 
 	cfg := GatewayFromEnv()
 	if cfg.HTTPAddr != DefaultGatewayHTTPAddr {
@@ -78,6 +79,7 @@ func TestGatewayFromEnv_DefaultPrefersLocalCrabstackWhenPresent(t *testing.T) {
 	t.Setenv(EnvGatewayPairMTLSCAFile, "")
 	t.Setenv(EnvGatewayPairMTLSCertFile, "")
 	t.Setenv(EnvGatewayPairMTLSKeyFile, "")
+	t.Setenv(EnvGatewayAgentsJSON, "")
 
 	cfg := GatewayFromEnv()
 	if cfg.KeyDir != DefaultGatewayKeyDir {
@@ -101,6 +103,7 @@ func TestGatewayFromEnv_Override(t *testing.T) {
 	t.Setenv(EnvGatewayPairMTLSCAFile, "/tmp/ca.pem")
 	t.Setenv(EnvGatewayPairMTLSCertFile, "/tmp/client.crt")
 	t.Setenv(EnvGatewayPairMTLSKeyFile, "/tmp/client.key")
+	t.Setenv(EnvGatewayAgentsJSON, `[{"name":"support","model":"anthropic/claude-sonnet-4-20250514"}]`)
 
 	cfg := GatewayFromEnv()
 	if cfg.HTTPAddr != "127.0.0.1:9999" {
@@ -132,6 +135,12 @@ func TestGatewayFromEnv_Override(t *testing.T) {
 	}
 	if cfg.PairMTLSCAFile != "/tmp/ca.pem" || cfg.PairMTLSClientCertFile != "/tmp/client.crt" || cfg.PairMTLSClientPrivateKeyFile != "/tmp/client.key" {
 		t.Fatalf("expected mtls file overrides")
+	}
+	if len(cfg.Agents) != 1 {
+		t.Fatalf("expected agents override, got %d", len(cfg.Agents))
+	}
+	if cfg.Agents[0].Name != "support" || cfg.Agents[0].Model != "anthropic/claude-sonnet-4-20250514" {
+		t.Fatalf("unexpected agents override: %+v", cfg.Agents[0])
 	}
 }
 
@@ -196,6 +205,33 @@ func TestGatewayConfigValidate(t *testing.T) {
 		HTTPAddr: ":8080", DBDriver: "sqlite", DBDSN: "x", GatewayID: "gw", KeyDir: ".keys", PairTimeout: 0,
 	}).Validate(); err == nil {
 		t.Fatalf("expected validation error for invalid pair timeout")
+	}
+	if err := (GatewayConfig{
+		HTTPAddr:        ":8080",
+		DBDriver:        "sqlite",
+		DBDSN:           "x",
+		GatewayID:       "gw",
+		KeyDir:          ".keys",
+		AdminSocketPath: ".crabstack/run/gateway-admin.sock",
+		PairTimeout:     DefaultGatewayPairTimeout,
+		Agents:          []GatewayAgentConfig{{Name: "assistant", Model: "invalid"}},
+	}).Validate(); err == nil {
+		t.Fatalf("expected validation error for invalid agent model format")
+	}
+	if err := (GatewayConfig{
+		HTTPAddr:        ":8080",
+		DBDriver:        "sqlite",
+		DBDSN:           "x",
+		GatewayID:       "gw",
+		KeyDir:          ".keys",
+		AdminSocketPath: ".crabstack/run/gateway-admin.sock",
+		PairTimeout:     DefaultGatewayPairTimeout,
+		Agents: []GatewayAgentConfig{
+			{Name: "assistant", Model: "anthropic/claude-sonnet-4-20250514"},
+			{Name: "Assistant", Model: "openai/gpt-4o-mini"},
+		},
+	}).Validate(); err == nil {
+		t.Fatalf("expected validation error for duplicate agent names")
 	}
 	if err := (GatewayConfig{
 		HTTPAddr:               ":8080",

@@ -27,6 +27,9 @@ At setup, generate and persist gateway identity:
 - Runtime calls to remote tools must be denied until pairing is complete.
 - Pairing is identity bootstrap only; runtime actions are still authorization-gated.
 
+Current implementation caveat:
+- Gateway URL-discovered tool hosts (`CRAB_GATEWAY_TOOL_HOST_URLS`) are currently direct HTTP(S) integrations and do not yet enforce pairing in that path. Treat them as trusted-infrastructure links and isolate accordingly.
+
 ## Authorization boundaries
 
 - Listener: ingress write only.
@@ -41,8 +44,10 @@ Pairing trigger remains local-admin only, even for paired remote CLI management 
 
 ## CLI auth bootstrap security
 
-- `crab auth codex` stores credentials at `~/.crabstack/auth/codex.json` by default.
-- `crab auth anthropic` stores credentials at `~/.crabstack/auth/anthropic.json` by default.
+- Auth file defaults resolve to local `./.crabstack/auth/...` when local `./.crabstack` exists, otherwise to `~/.crabstack/auth/...`.
+- `crab auth codex` stores credentials at `codex.json` in that auth directory.
+- `crab auth anthropic` stores credentials at `anthropic.json` in that auth directory.
+- `crab auth claude` stores setup-token credentials at `claude.json` in that auth directory.
 - Credential files and parent directories should be owner-only permissions.
 - Treat refresh tokens as long-lived secrets and rotate when compromise is suspected.
 

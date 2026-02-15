@@ -8,13 +8,14 @@ Use this page for day-to-day CLI actions. Protocol details live in [Integrations
 ## Core commands
 
 ```bash
-crab pair test [--admin-socket <path>]
-crab pair tool <endpoint> <name> [--admin-socket <path>]
-crab pair subscriber <endpoint> <name> [--admin-socket <path>]
-crab pair cli <endpoint> <name> [--admin-socket <path>]
+crab pair test [--admin-socket <path>] [--timeout <duration>]
+crab pair tool <endpoint> <name> [--admin-socket <path>] [--timeout <duration>]
+crab pair subscriber <endpoint> <name> [--admin-socket <path>] [--timeout <duration>]
+crab pair cli <endpoint> <name> [--admin-socket <path>] [--timeout <duration>]
 crab event send <text>
-crab auth codex
-crab auth anthropic
+crab auth codex [--auth-file <path>] [--timeout <duration>]
+crab auth anthropic [--auth-file <path>] [--timeout <duration>]
+crab auth claude [--auth-file <path>] [--mode <max|console>] [--timeout <duration>]
 ```
 
 ## Pairing command mapping
@@ -28,8 +29,11 @@ For full handshake phases and validation rules, see [Integration Pairing Flow](.
 
 ## Provider auth bootstrap
 
-- `crab auth codex` runs OAuth + PKCE and stores credentials at `~/.crabstack/auth/codex.json` by default.
-- `crab auth anthropic` runs OAuth + PKCE/manual paste flow and stores credentials at `~/.crabstack/auth/anthropic.json` by default.
+- `crab auth codex` runs OAuth + PKCE with localhost callback + manual fallback.
+- `crab auth anthropic` runs OAuth + PKCE with manual code/redirect paste.
+- `crab auth claude` runs setup-token auth flow (`--mode max|console`) and writes token-backed credentials.
+- Default auth path resolution: `./.crabstack/auth/*.json` when local `./.crabstack` exists, otherwise `~/.crabstack/auth/*.json`.
+- `--auth-file` can override credential output path on all auth subcommands.
 - Credential files and parent directories should be owner-only readable/writable.
 - Monitor provider auth states (`valid`, `expiring`, `reauth_required`) and re-auth before outages.
 

@@ -1,4 +1,5 @@
 .crabstack/
+.workspaces/
 *.db
 *.pem
 *.sock

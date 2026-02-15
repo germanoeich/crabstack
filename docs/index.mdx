@@ -3,7 +3,7 @@ title: Crabstack Operator Documentation
 description: Operator-first guide to deploy, secure, pair, and run Crabstack components.
 ---
 
-Crabstack runs a modular agent stack with a gateway at the center and optional remote services (listeners, memory, cron, tool hosts).
+Crabstack runs a modular agent stack with a gateway at the center and optional services (memory, cron, Discord listener/consumer, and custom tool hosts).
 
 Use this section when you are operating the system. Integration contracts and schemas live under [Integrations](./integrations/index.mdx).
 
@@ -12,12 +12,15 @@ Use this section when you are operating the system. Integration contracts and sc
 1. Read [Overview](./overview.mdx) for component responsibilities and rollout shape.
 2. Read [Security](./security.mdx) before exposing anything off-host.
 3. Follow [Pairing](./pairing.mdx) to onboard tool hosts and other remotes.
-4. Use [CLI Operations](./cli.mdx) for auth bootstrap, control-plane actions, and one-shot ingress.
-5. Use [Tools](./tools.mdx) and [Events](./events.mdx) for runtime operations and troubleshooting.
+4. Use [Cron Service](./cron.mdx) for scheduling and `cron.*` tool operations.
+5. Use [Discord Listener](./discord.mdx) for Discord ingress and outbound response wiring.
+6. Use [CLI Operations](./cli.mdx) for auth bootstrap, control-plane actions, and one-shot ingress.
+7. Use [Tools](./tools.mdx) and [Events](./events.mdx) for runtime operations and troubleshooting.
 
 ## Operator defaults
 
 - Keep gateway as the orchestration source of truth.
-- Pair every remote before runtime traffic.
+- Pair every pair-capable remote before runtime traffic.
 - Use mTLS for all remote links.
+- Keep cron/discord adapters observable (health checks + delivery error logs), not "best effort".
 - Expect at-least-once event delivery and design ops around idempotency.

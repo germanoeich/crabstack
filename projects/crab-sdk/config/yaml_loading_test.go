@@ -30,6 +30,15 @@ gateway:
   pair_mtls_key_file: "/tmp/client.key"
   anthropic_api_key: "yaml-anthropic"
   openai_api_key: "yaml-openai"
+  agents:
+    - name: "support"
+      model: "anthropic/claude-sonnet-4-20250514"
+      channels:
+        - "discord"
+        - "telegram:ops-room"
+      users:
+        - "u-1"
+      workspace_dir: "/srv/workspaces/support"
 `)
 	t.Setenv(EnvConfigFile, configPath)
 
@@ -72,6 +81,24 @@ gateway:
 	}
 	if cfg.OpenAIAPIKey != "env-openai" {
 		t.Fatalf("expected env openai api key override, got %q", cfg.OpenAIAPIKey)
+	}
+	if len(cfg.Agents) != 1 {
+		t.Fatalf("expected one gateway agent, got %d", len(cfg.Agents))
+	}
+	if cfg.Agents[0].Name != "support" {
+		t.Fatalf("unexpected agent name %q", cfg.Agents[0].Name)
+	}
+	if cfg.Agents[0].Model != "anthropic/claude-sonnet-4-20250514" {
+		t.Fatalf("unexpected agent model %q", cfg.Agents[0].Model)
+	}
+	if cfg.Agents[0].WorkspaceDir != "/srv/workspaces/support" {
+		t.Fatalf("unexpected workspace dir %q", cfg.Agents[0].WorkspaceDir)
+	}
+	if len(cfg.Agents[0].Channels) != 2 || cfg.Agents[0].Channels[0] != "discord" || cfg.Agents[0].Channels[1] != "telegram:ops-room" {
+		t.Fatalf("unexpected channels: %+v", cfg.Agents[0].Channels)
+	}
+	if len(cfg.Agents[0].Users) != 1 || cfg.Agents[0].Users[0] != "u-1" {
+		t.Fatalf("unexpected users: %+v", cfg.Agents[0].Users)
 	}
 }
 
@@ -404,6 +431,7 @@ func clearGatewayEnv(t *testing.T) {
 	t.Setenv(EnvGatewayPairMTLSCAFile, "")
 	t.Setenv(EnvGatewayPairMTLSCertFile, "")
 	t.Setenv(EnvGatewayPairMTLSKeyFile, "")
+	t.Setenv(EnvGatewayAgentsJSON, "")
 	t.Setenv(EnvGatewayAnthropicAPIKey, "")
 	t.Setenv(EnvGatewayOpenAIAPIKey, "")
 }

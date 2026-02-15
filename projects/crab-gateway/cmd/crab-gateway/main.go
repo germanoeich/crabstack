@@ -117,6 +117,9 @@ func main() {
 	}
 
 	service := gateway.NewService(logger, dispatcher, store, modelRegistry, tc)
+	if err := service.SetAgents(toGatewayAgentConfigs(cfg.Agents)); err != nil {
+		logger.Fatalf("invalid gateway agents config: %v", err)
+	}
 	publicSrv := httpapi.NewServer(logger, cfg.HTTPAddr, service, nil, false)
 	adminSrv := httpapi.NewServer(logger, "unix://"+cfg.AdminSocketPath, service, pairingService, true)
 
@@ -165,6 +168,23 @@ func main() {
 	if err := adminSrv.Shutdown(ctx); err != nil {
 		logger.Printf("admin server shutdown error: %v", err)
 	}
+}
+
+func toGatewayAgentConfigs(configs []sdkconfig.GatewayAgentConfig) []gateway.AgentConfig {
+	if len(configs) == 0 {
+		return nil
+	}
+	out := make([]gateway.AgentConfig, 0, len(configs))
+	for _, cfg := range configs {
+		out = append(out, gateway.AgentConfig{
+			Name:         cfg.Name,
+			Model:        cfg.Model,
+			Channels:     cfg.Channels,
+			Users:        cfg.Users,
+			WorkspaceDir: cfg.WorkspaceDir,
+		})
+	}
+	return out
 }
 
 func webhookSubscriberURLsFromEnv() []string {

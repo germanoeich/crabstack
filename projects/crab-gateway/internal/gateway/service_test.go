@@ -687,6 +687,152 @@ func TestServiceProcessEvent_NoToolClientKeepsCurrentBehavior(t *testing.T) {
 	}
 }
 
+func TestServiceProcessEvent_UsesConfiguredAgentProviderAndModel(t *testing.T) {
+	provider := &mockProvider{
+		response: model.CompletionResponse{Content: "hello from openai"},
+	}
+	svc, collector, _ := newTestService(t, map[string]model.Provider{"openai": provider})
+	if err := svc.SetAgents([]AgentConfig{
+		{
+			Name:         "assistant-discord",
+			Model:        "openai/gpt-4o-mini",
+			Channels:     []string{"discord"},
+			Users:        []string{"user-1"},
+			WorkspaceDir: "/srv/workspaces/assistant-discord",
+		},
+	}); err != nil {
+		t.Fatalf("set agents: %v", err)
+	}
+
+	inbound := inboundEvent(t, "evt_cfg_agent", "trace_cfg_agent", "tenant_1", "session_1", "assistant-discord", "hello")
+	inbound.Source.Platform = "discord"
+	inbound.Source.ActorID = "user-1"
+	svc.processEvent(context.Background(), inbound)
+
+	seen := collectEventSet(t, collector.events, 3)
+	respEvent, ok := seen[types.EventTypeAgentResponseCreated]
+	if !ok {
+		t.Fatalf("expected %s", types.EventTypeAgentResponseCreated)
+	}
+
+	var resp types.AgentResponseCreatedPayload
+	if err := respEvent.DecodePayload(&resp); err != nil {
+		t.Fatalf("decode response payload: %v", err)
+	}
+	if resp.Usage == nil {
+		t.Fatalf("expected usage payload")
+	}
+	if resp.Usage.Provider != "openai" {
+		t.Fatalf("expected provider openai, got %q", resp.Usage.Provider)
+	}
+	if _, ok := respEvent.Meta["agent_name"].(string); !ok {
+		t.Fatalf("expected agent_name metadata")
+	}
+	if got, _ := respEvent.Meta["workspace_dir"].(string); got != "/srv/workspaces/assistant-discord" {
+		t.Fatalf("unexpected workspace_dir metadata: %q", got)
+	}
+
+	if len(provider.requests) != 1 {
+		t.Fatalf("expected one provider request, got %d", len(provider.requests))
+	}
+	if provider.requests[0].Model != "gpt-4o-mini" {
+		t.Fatalf("expected configured model gpt-4o-mini, got %q", provider.requests[0].Model)
+	}
+}
+
+func TestServiceProcessEvent_ConfiguredAgentsSelectByChannel(t *testing.T) {
+	provider := &mockProvider{
+		response: model.CompletionResponse{Content: "routed"},
+	}
+	svc, collector, store := newTestService(t, map[string]model.Provider{"openai": provider})
+	if err := svc.SetAgents([]AgentConfig{
+		{
+			Name:     "discord-assistant",
+			Model:    "openai/gpt-4o-mini",
+			Channels: []string{"discord:ops-room"},
+		},
+		{
+			Name:     "telegram-assistant",
+			Model:    "openai/gpt-4o-mini",
+			Channels: []string{"telegram"},
+		},
+	}); err != nil {
+		t.Fatalf("set agents: %v", err)
+	}
+
+	inbound := inboundEvent(t, "evt_route", "trace_route", "tenant_1", "session_1", "assistant", "hello")
+	inbound.Source.Platform = "discord"
+	inbound.Source.ChannelID = "ops-room"
+	svc.processEvent(context.Background(), inbound)
+
+	_ = collectEventSet(t, collector.events, 3)
+
+	sessionRec, err := store.GetSession(context.Background(), "tenant_1", "session_1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sessionRec.AgentID != "discord-assistant" {
+		t.Fatalf("expected routed session agent_id discord-assistant, got %q", sessionRec.AgentID)
+	}
+}
+
+func TestServiceProcessEvent_ConfiguredAgentsFailWhenNoChannelMatch(t *testing.T) {
+	provider := &mockProvider{
+		response: model.CompletionResponse{Content: "nope"},
+	}
+	svc, collector, _ := newTestService(t, map[string]model.Provider{"openai": provider})
+	if err := svc.SetAgents([]AgentConfig{
+		{
+			Name:     "telegram-assistant",
+			Model:    "openai/gpt-4o-mini",
+			Channels: []string{"telegram"},
+		},
+	}); err != nil {
+		t.Fatalf("set agents: %v", err)
+	}
+
+	inbound := inboundEvent(t, "evt_nomatch", "trace_nomatch", "tenant_1", "session_1", "assistant", "hello")
+	inbound.Source.Platform = "discord"
+	svc.processEvent(context.Background(), inbound)
+
+	seen := collectEventTypes(t, collector.events, 1)
+	if !seen[types.EventTypeAgentTurnFailed] {
+		t.Fatalf("expected %s", types.EventTypeAgentTurnFailed)
+	}
+	if len(provider.requests) != 0 {
+		t.Fatalf("expected no provider request on agent mismatch")
+	}
+}
+
+func TestServiceProcessEvent_ConfiguredAgentsEnforceUserAllowlist(t *testing.T) {
+	provider := &mockProvider{
+		response: model.CompletionResponse{Content: "restricted"},
+	}
+	svc, collector, _ := newTestService(t, map[string]model.Provider{"openai": provider})
+	if err := svc.SetAgents([]AgentConfig{
+		{
+			Name:  "discord-assistant",
+			Model: "openai/gpt-4o-mini",
+			Users: []string{"allowed-user"},
+		},
+	}); err != nil {
+		t.Fatalf("set agents: %v", err)
+	}
+
+	inbound := inboundEvent(t, "evt_user", "trace_user", "tenant_1", "session_1", "discord-assistant", "hello")
+	inbound.Source.Platform = "discord"
+	inbound.Source.ActorID = "blocked-user"
+	svc.processEvent(context.Background(), inbound)
+
+	seen := collectEventTypes(t, collector.events, 1)
+	if !seen[types.EventTypeAgentTurnFailed] {
+		t.Fatalf("expected %s", types.EventTypeAgentTurnFailed)
+	}
+	if len(provider.requests) != 0 {
+		t.Fatalf("expected no provider request for blocked user")
+	}
+}
+
 func newTestService(t *testing.T, providers map[string]model.Provider) (*Service, *collectorSubscriber, *session.MemoryStore) {
 	return newTestServiceWithToolClient(t, providers, nil)
 }

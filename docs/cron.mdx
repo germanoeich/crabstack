@@ -1,0 +1,76 @@
+---
+title: Cron Service Operations
+description: Operator runbook for crab-cron scheduling, tool exposure, and production checks.
+---
+
+Use this page to run and operate `crab-cron`.
+
+For payload and protocol contracts, see [Integration Cron Service](./integrations/cron.mdx).
+
+## What the service does
+
+- Emits scheduled events to gateway `POST /v1/events`.
+- Exposes remote tools at `/v1/tools` and `/v1/tools/call`.
+- Registers `cron.list`, `cron.create`, and `cron.remove`.
+- Supports heartbeat emissions via `heartbeat.tick` jobs.
+
+## Config keys
+
+- `CRAB_GATEWAY_HTTP_URL` (default `http://127.0.0.1:8080`)
+- `CRAB_CRON_HTTP_ADDR` (default `:8091`)
+- `CRAB_CRON_TENANT_ID` (default `default`)
+- `CRAB_CRON_AGENT_ID` (default `assistant`)
+- `CRAB_CRON_DB_PATH` (default `cron.db`)
+
+Current implementation caveats:
+- Job persistence is currently in-memory, so restarts lose scheduled jobs.
+- `CRAB_CRON_DB_PATH` is validated config but not yet active persistence.
+- `CRAB_CRON_TENANT_ID` and `CRAB_CRON_AGENT_ID` are validated, but created jobs use `tenant_id` and `context.agent_id` from each `cron.create` request.
+
+## Gateway wiring
+
+- Add cron as a tool host in gateway config:
+  - `CRAB_GATEWAY_TOOL_HOST_URLS=cron=http://127.0.0.1:8091`
+- Ensure cron can reach gateway events ingress:
+  - `CRAB_GATEWAY_HTTP_URL=http://127.0.0.1:8080`
+- Current `crab-cron` integration path is config-based HTTP wiring (not `crab pair tool ...`).
+
+## Operational checks
+
+1. Health endpoint responds:
+
+```bash
+curl -sS http://127.0.0.1:8091/healthz
+```
+
+2. Discovery returns cron tool definitions:
+
+```bash
+curl -sS http://127.0.0.1:8091/v1/tools
+```
+
+3. Create and verify a job:
+
+```bash
+curl -sS http://127.0.0.1:8091/v1/tools/call \
+  -H 'content-type: application/json' \
+  -d '{
+    "version":"v1",
+    "call_id":"op-check-1",
+    "tool_name":"cron.create",
+    "tenant_id":"default",
+    "args":{"name":"heartbeat","schedule":"*/1 * * * *","event_type":"heartbeat.tick"},
+    "context":{"agent_id":"assistant","session_id":"ops-heartbeat"}
+  }'
+```
+
+## Failure patterns
+
+- `INVALID_ARGS` from `cron.create`: invalid cron expression, missing tenant/agent/session scope, or unknown fields.
+- `INVALID_ARGS` from `cron.remove`: missing or unknown `job_id`.
+- Gateway rejects emitted events (`>=400`): invalid envelope or routing mismatch.
+
+## Security notes
+
+- Spec requires mTLS for remote links.
+- Current cron binary exposes plain HTTP endpoints; if deployed cross-host, place it behind a trusted mTLS boundary (for example sidecar/proxy termination) or keep it on the same trusted host/network segment.

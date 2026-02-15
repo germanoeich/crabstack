@@ -11,8 +11,8 @@ For request/response schema details, see [Integration Tool Protocol](./integrati
 
 - Tool hosts expose discovery and call endpoints.
 - Gateway is the caller and policy enforcer.
-- Pairing is triggered through gateway local admin socket control-plane APIs.
-- Pairing is mandatory before any runtime call is accepted.
+- Pairing is the target trust model for remote tool hosts.
+- Current gateway URL-discovery path (`CRAB_GATEWAY_TOOL_HOST_URLS`) calls hosts directly over configured URLs and does not run pairing in that path yet.
 - Pairing establishes identity, not full runtime capability; allow/deny policy still applies.
 
 ## Minimum controls
@@ -21,6 +21,7 @@ For request/response schema details, see [Integration Tool Protocol](./integrati
 - Restrict callable methods by explicit policy.
 - Set call timeouts per tool.
 - Record calls with IDs for audit and replay.
+- If using URL-discovery without pairing, treat that network segment as trusted infrastructure and isolate it accordingly.
 
 ## Reliability expectations
 
@@ -41,6 +42,8 @@ Policy and role contracts are detailed in [Integration Peer Auth](./integrations
 
 - Memory host: `memory.append`, `memory.query`, `memory.delete`
 - Cron host: `cron.list`, `cron.create`, `cron.remove`
+
+For cron-specific runbook details, see [Cron Service](./cron.mdx).
 
 ## Production checklist
 

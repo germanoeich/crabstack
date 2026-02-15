@@ -26,12 +26,22 @@ const (
 )
 
 type Service struct {
-	logger       *log.Logger
-	dispatcher   *dispatch.Dispatcher
-	scheduler    *session.Scheduler
-	sessionStore session.Store
-	models       *model.Registry
-	toolClient   *toolclient.Client
+	logger           *log.Logger
+	dispatcher       *dispatch.Dispatcher
+	scheduler        *session.Scheduler
+	sessionStore     session.Store
+	models           *model.Registry
+	toolClient       *toolclient.Client
+	agents           []runtimeAgentConfig
+	agentIndexByName map[string]int
+}
+
+type executionTarget struct {
+	agentName             string
+	providerName          string
+	modelName             string
+	workspaceDir          string
+	allowProviderFallback bool
 }
 
 func NewService(logger *log.Logger, dispatcher *dispatch.Dispatcher, sessionStore session.Store, models *model.Registry, toolClient *toolclient.Client) *Service {
@@ -39,11 +49,12 @@ func NewService(logger *log.Logger, dispatcher *dispatch.Dispatcher, sessionStor
 		models = model.NewRegistry()
 	}
 	svc := &Service{
-		logger:       logger,
-		dispatcher:   dispatcher,
-		sessionStore: sessionStore,
-		models:       models,
-		toolClient:   toolClient,
+		logger:           logger,
+		dispatcher:       dispatcher,
+		sessionStore:     sessionStore,
+		models:           models,
+		toolClient:       toolClient,
+		agentIndexByName: make(map[string]int),
 	}
 	svc.scheduler = session.NewScheduler(logger, 256, svc.processEvent)
 	return svc
@@ -57,6 +68,21 @@ func (s *Service) AcceptEvent(ctx context.Context, event types.EventEnvelope) er
 }
 
 func (s *Service) processEvent(ctx context.Context, inbound types.EventEnvelope) {
+	if inbound.EventType == types.EventTypeChannelMessageReceived {
+		resolvedAgent, err := s.resolveAgentForEvent(inbound, inbound.Routing.AgentID)
+		if err != nil {
+			s.dispatcher.Dispatch(ctx, s.lifecycleEvent(inbound, "", types.EventTypeAgentTurnFailed, map[string]any{
+				"source_event_id": inbound.EventID,
+				"error":           fmt.Sprintf("resolve agent failed: %v", err),
+			}))
+			s.logger.Printf("agent resolution failed event_id=%s session_id=%s err=%v", inbound.EventID, inbound.Routing.SessionID, err)
+			return
+		}
+		if resolvedAgent != nil {
+			inbound.Routing.AgentID = resolvedAgent.name
+		}
+	}
+
 	rec, err := s.sessionStore.EnsureSession(ctx, inbound)
 	if err != nil {
 		s.dispatcher.Dispatch(ctx, s.lifecycleEvent(inbound, "", types.EventTypeAgentTurnFailed, map[string]any{
@@ -139,7 +165,12 @@ func (s *Service) handleChannelMessage(ctx context.Context, inbound types.EventE
 		return nil, fmt.Errorf("build conversation history: %w", err)
 	}
 
-	providerName, provider, err := s.resolveProvider(sessionAgentID)
+	target, err := s.resolveExecutionTarget(inbound, sessionAgentID)
+	if err != nil {
+		return nil, err
+	}
+
+	providerName, provider, err := s.resolveProviderForTarget(target.providerName, target.allowProviderFallback)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +188,7 @@ func (s *Service) handleChannelMessage(ctx context.Context, inbound types.EventE
 	toolRounds := 0
 	for {
 		completion, err = provider.Complete(ctx, model.CompletionRequest{
-			Model:        defaultModelName,
+			Model:        target.modelName,
 			Messages:     messages,
 			Tools:        tools,
 			MaxTokens:    defaultMaxTokens,
@@ -299,12 +330,18 @@ func (s *Service) handleChannelMessage(ctx context.Context, inbound types.EventE
 			"source_event_id": inbound.EventID,
 		},
 	}
+	if target.agentName != "" {
+		event.Meta["agent_name"] = target.agentName
+	}
+	if target.workspaceDir != "" {
+		event.Meta["workspace_dir"] = target.workspaceDir
+	}
 
 	return &event, nil
 }
 
-func (s *Service) resolveProvider(agentID string) (string, model.Provider, error) {
-	providerName := strings.TrimSpace(agentID)
+func (s *Service) resolveProviderForTarget(providerName string, allowFallback bool) (string, model.Provider, error) {
+	providerName = strings.TrimSpace(providerName)
 	if providerName == "" {
 		providerName = defaultProviderName
 	}
@@ -312,7 +349,7 @@ func (s *Service) resolveProvider(agentID string) (string, model.Provider, error
 	if provider, ok := s.models.Get(providerName); ok {
 		return providerName, provider, nil
 	}
-	if !strings.EqualFold(providerName, defaultProviderName) {
+	if allowFallback && !strings.EqualFold(providerName, defaultProviderName) {
 		if provider, ok := s.models.Get(defaultProviderName); ok {
 			return defaultProviderName, provider, nil
 		}

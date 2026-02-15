@@ -22,6 +22,17 @@ gateway:
   pair_mtls_ca_file: "" # CRAB_GATEWAY_PAIR_MTLS_CA_FILE (set ca/cert/key together)
   pair_mtls_cert_file: "" # CRAB_GATEWAY_PAIR_MTLS_CERT_FILE
   pair_mtls_key_file: "" # CRAB_GATEWAY_PAIR_MTLS_KEY_FILE
+  agents:
+    - name: "assistant-discord" # id; used as routing.agent_id
+      model: "anthropic/claude-sonnet-4-20250514" # provider/model
+      channels:
+        - "discord" # platform only
+        - "discord:1234567890" # platform:channel_id
+      users:
+        - "9876543210" # source.actor_id allowlist
+      workspace_dir: "./workspaces/assistant-discord"
+  # Optional env override for the full list:
+  # CRAB_GATEWAY_AGENTS_JSON='[{"name":"assistant-discord","model":"anthropic/claude-sonnet-4-20250514","channels":["discord"],"users":["9876543210"],"workspace_dir":"./workspaces/assistant-discord"}]'
   auth:
     # Gateway consumes these credential files.
     codex_credentials_file: "~/.crabstack/auth/codex.json"

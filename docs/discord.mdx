@@ -1,0 +1,64 @@
+---
+title: Discord Listener Operations
+description: Operator runbook for crab-discord inbound listener and outbound response consumer.
+---
+
+Use this page to run and operate `crab-discord`.
+
+For message mapping and webhook contracts, see [Integration Discord Listener](./integrations/discord.mdx).
+
+## What the service does
+
+- Listens to Discord inbound messages and posts `channel.message.received` to gateway `POST /v1/events`.
+- Runs a local HTTP consumer (`POST /v1/events`) for outbound gateway webhook events.
+- Sends outbound `agent.response.created` content/actions back to Discord channels.
+
+## Config keys
+
+- `DISCORD_BOT_TOKEN` (required)
+- `CRAB_GATEWAY_HTTP_URL` (default `http://127.0.0.1:8080`)
+- `CRAB_DISCORD_TENANT_ID` (default `default`)
+- `CRAB_DISCORD_AGENT_ID` (default `assistant`)
+- `CRAB_DISCORD_CONSUMER_ADDR` (default `:8090`)
+
+## Gateway wiring
+
+- Inbound path (Discord -> gateway):
+  - `CRAB_GATEWAY_HTTP_URL` must reach gateway `POST /v1/events`.
+- Outbound path (gateway -> Discord consumer):
+  - Include consumer URL in gateway webhook subscribers.
+  - Example: `CRAB_GATEWAY_WEBHOOK_URLS=http://127.0.0.1:8090/v1/events`
+- Current `crab-discord` integration path is HTTP/webhook config wiring (not `crab pair subscriber ...`).
+
+## Runtime behavior to expect
+
+- Bot-authored Discord messages are ignored.
+- Inbound messages become `channel.message.received` envelopes with `source.platform=discord`.
+- Session mapping is stable per tenant+channel, so one Discord channel typically maps to one long-lived Crabstack session.
+- Outbound channel resolution order is:
+  1. `routing.target.channel_id`
+  2. in-memory session-to-channel registry
+  3. `source.channel_id`
+
+## Operational checks
+
+1. Verify consumer endpoint responds (method checks are expected):
+
+```bash
+curl -i http://127.0.0.1:8090/v1/events
+```
+
+2. Confirm gateway webhook configuration includes discord consumer URL.
+3. Send a Discord user message and verify gateway receives `channel.message.received`.
+4. Trigger an `agent.response.created` event and verify Discord outbound delivery.
+
+## Failure patterns
+
+- `invalid event envelope` from consumer: webhook payload is not canonical `EventEnvelope`.
+- No outbound Discord message for a valid response event: missing channel mapping and no target override.
+- Discord API send failures: invalid channel permissions/token or transient network issues.
+
+## Security notes
+
+- Spec requires mTLS for remote links.
+- Current discord binary uses HTTP for gateway ingress/webhook callback; for cross-host deployments, enforce mTLS at a trusted proxy boundary or keep traffic local/private.

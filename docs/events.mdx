@@ -15,12 +15,12 @@ For full envelope and payload contracts, see [Integration Event Schema](./integr
 
 ## High-value event families
 
-- Channel ingress: `channel.message.*`
+- Channel ingress: `channel.message.*` (see [Discord Listener](./discord.mdx))
 - Agent lifecycle: `agent.turn.*`, `agent.response.created`
 - Tool execution: `tool.call.*`
 - Pairing lifecycle: `pairing.*` (control-plane initiated via admin socket)
 - Config lifecycle: `config.applied`, `config.reverted`
-- Scheduler/system: `cron.triggered`, `heartbeat.tick`
+- Scheduler/system: `cron.triggered`, `heartbeat.tick` (see [Cron Service](./cron.mdx))
 
 ## Routing behavior to know
 

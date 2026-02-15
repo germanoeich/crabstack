@@ -1,0 +1,69 @@
+---
+title: Discord Listener (Integrations)
+description: crab-discord inbound/outbound event contracts and channel routing behavior.
+---
+
+This page documents current `crab-discord` integration behavior.
+
+## Service surface
+
+- Inbound listener:
+  - Discord gateway session receives messages.
+  - Posts canonical envelopes to gateway `POST /v1/events`.
+- Outbound consumer:
+  - HTTP server exposing `POST /v1/events`.
+  - Consumes gateway webhook events and sends responses to Discord.
+
+## Inbound mapping
+
+Ingress event type:
+- `channel.message.received`
+
+Source mapping:
+- `source.component_type=listener`
+- `source.component_id=discord-listener`
+- `source.platform=discord`
+- `source.channel_id=<discord channel id>`
+- `source.actor_id=<discord author id>`
+- `source.message_id=<discord message id>`
+- `source.transport=http`
+
+Routing mapping:
+- `routing.agent_id` from `CRAB_DISCORD_AGENT_ID`
+- `routing.session_id=discord:<sha256(tenant_id + ":discord:" + channel_id)>`
+
+Payload mapping:
+- `payload.text` from Discord message content.
+- `payload.attachments[]` mapped by MIME type:
+  - `image/*` -> `image`
+  - `audio/*` -> `audio`
+  - `video/*` -> `video`
+  - fallback -> `file`
+- `payload.reply_to_message_id` from Discord message reference when present.
+
+Filtering behavior:
+- Bot-authored messages are ignored.
+
+## Outbound consumer behavior
+
+Endpoint:
+- `POST /v1/events`
+
+Envelope handling:
+- Non-`agent.response.created` events return `200` and are ignored.
+- Invalid envelope/payload returns `400`.
+
+Channel resolution order:
+1. `routing.target.channel_id`
+2. session->channel registry (learned from inbound messages)
+3. `source.channel_id`
+
+Message extraction:
+- Sends `actions[]` where `kind=send_message` and `args.text` is non-empty.
+- Sends `content[]` entries where `type=text` and text is non-empty.
+
+## Operational integration notes
+
+- To receive outbound events, gateway webhook config should include discord consumer URL (`http://<host>:<port>/v1/events`).
+- Current integration is webhook/event-ingress wiring, not paired-subscriber transport.
+- Current transport surface is HTTP; if discord runs off-host, enforce mTLS/zero-trust controls at network boundaries to satisfy security requirements.
