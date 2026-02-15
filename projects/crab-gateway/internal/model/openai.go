@@ -59,11 +59,36 @@ type openAIRequest struct {
 	Messages    []openAIMessage `json:"messages"`
 	MaxTokens   int             `json:"max_tokens"`
 	Temperature float64         `json:"temperature"`
+	Tools       []openAITool    `json:"tools,omitempty"`
+}
+
+type openAITool struct {
+	Type     string            `json:"type"`
+	Function openAIFunctionDef `json:"function"`
+}
+
+type openAIFunctionDef struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
 type openAIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string           `json:"role"`
+	Content    *string          `json:"content"`
+	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+}
+
+type openAIToolCall struct {
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Function openAIToolCallFunction `json:"function"`
+}
+
+type openAIToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type openAIResponse struct {
@@ -118,6 +143,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		Messages:    messages,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
+		Tools:       buildOpenAITools(req.Tools),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -150,7 +176,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	}
 
 	choice := parsed.Choices[0]
-	if strings.TrimSpace(choice.Message.Content) == "" {
+	blocks := parseOpenAIBlocks(choice.Message)
+	content := openAIText(blocks)
+	if strings.TrimSpace(content) == "" && !hasToolUseBlock(blocks) {
 		return CompletionResponse{}, errors.New("openai response contained no content")
 	}
 
@@ -160,7 +188,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	}
 
 	return CompletionResponse{
-		Content: choice.Message.Content,
+		Content: content,
+		Blocks:  blocks,
 		Usage: Usage{
 			InputTokens:  parsed.Usage.PromptTokens,
 			OutputTokens: parsed.Usage.CompletionTokens,
@@ -173,20 +202,184 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 func buildOpenAIMessages(req CompletionRequest) ([]openAIMessage, error) {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if strings.TrimSpace(req.SystemPrompt) != "" {
-		messages = append(messages, openAIMessage{Role: string(RoleSystem), Content: req.SystemPrompt})
+		messages = append(messages, openAIMessage{Role: string(RoleSystem), Content: stringPtr(req.SystemPrompt)})
 	}
 
 	for _, message := range req.Messages {
 		role := strings.ToLower(strings.TrimSpace(string(message.Role)))
+		if len(message.Blocks) == 0 {
+			switch role {
+			case string(RoleUser), string(RoleAssistant), string(RoleSystem):
+				messages = append(messages, openAIMessage{Role: role, Content: stringPtr(message.Content)})
+			default:
+				return nil, fmt.Errorf("unsupported message role: %s", message.Role)
+			}
+			continue
+		}
+
 		switch role {
-		case string(RoleUser), string(RoleAssistant), string(RoleSystem):
-			messages = append(messages, openAIMessage{Role: role, Content: message.Content})
+		case string(RoleUser):
+			resultMessages, userText, err := buildOpenAIUserToolMessages(message.Blocks)
+			if err != nil {
+				return nil, err
+			}
+			messages = append(messages, resultMessages...)
+			if strings.TrimSpace(userText) != "" {
+				messages = append(messages, openAIMessage{Role: role, Content: stringPtr(userText)})
+			}
+		case string(RoleAssistant):
+			assistantMessage, err := buildOpenAIAssistantToolMessage(message.Blocks)
+			if err != nil {
+				return nil, err
+			}
+			assistantMessage.Role = role
+			messages = append(messages, assistantMessage)
+		case string(RoleSystem):
+			text, err := textFromBlocks(message.Blocks)
+			if err != nil {
+				return nil, err
+			}
+			messages = append(messages, openAIMessage{Role: role, Content: stringPtr(text)})
 		default:
 			return nil, fmt.Errorf("unsupported message role: %s", message.Role)
 		}
 	}
 
 	return messages, nil
+}
+
+func buildOpenAITools(tools []ToolDefinition) []openAITool {
+	if len(tools) == 0 {
+		return nil
+	}
+	built := make([]openAITool, 0, len(tools))
+	for _, tool := range tools {
+		built = append(built, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        tool.Name,
+				Description: tool.Description,
+				Parameters:  cloneRawMessageOrObject(tool.InputSchema),
+			},
+		})
+	}
+	return built
+}
+
+func buildOpenAIUserToolMessages(blocks []ContentBlock) ([]openAIMessage, string, error) {
+	results := make([]openAIMessage, 0, len(blocks))
+	var textBuilder strings.Builder
+	for _, block := range blocks {
+		switch block.Type {
+		case "tool_result":
+			results = append(results, openAIMessage{
+				Role:       "tool",
+				ToolCallID: block.ToolUseID,
+				Content:    stringPtr(block.Content),
+			})
+		case "text":
+			textBuilder.WriteString(block.Text)
+		default:
+			return nil, "", fmt.Errorf("unsupported content block type: %s", block.Type)
+		}
+	}
+	return results, textBuilder.String(), nil
+}
+
+func buildOpenAIAssistantToolMessage(blocks []ContentBlock) (openAIMessage, error) {
+	message := openAIMessage{}
+	var textBuilder strings.Builder
+	for _, block := range blocks {
+		switch block.Type {
+		case "tool_use":
+			message.ToolCalls = append(message.ToolCalls, openAIToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: openAIToolCallFunction{
+					Name:      block.Name,
+					Arguments: rawJSONToString(block.Input),
+				},
+			})
+		case "text":
+			textBuilder.WriteString(block.Text)
+		default:
+			return openAIMessage{}, fmt.Errorf("unsupported content block type: %s", block.Type)
+		}
+	}
+	if text := textBuilder.String(); strings.TrimSpace(text) != "" {
+		message.Content = stringPtr(text)
+	}
+	return message, nil
+}
+
+func textFromBlocks(blocks []ContentBlock) (string, error) {
+	var builder strings.Builder
+	for _, block := range blocks {
+		if block.Type != "text" {
+			return "", fmt.Errorf("unsupported content block type: %s", block.Type)
+		}
+		builder.WriteString(block.Text)
+	}
+	return builder.String(), nil
+}
+
+func parseOpenAIBlocks(message openAIMessage) []ContentBlock {
+	blocks := make([]ContentBlock, 0, len(message.ToolCalls)+1)
+	if message.Content != nil {
+		blocks = append(blocks, ContentBlock{Type: "text", Text: *message.Content})
+	}
+	for _, toolCall := range message.ToolCalls {
+		if toolCall.Type != "" && toolCall.Type != "function" {
+			continue
+		}
+		blocks = append(blocks, ContentBlock{
+			Type:  "tool_use",
+			ID:    toolCall.ID,
+			Name:  toolCall.Function.Name,
+			Input: openAIArgumentsJSON(toolCall.Function.Arguments),
+		})
+	}
+	return blocks
+}
+
+func openAIText(blocks []ContentBlock) string {
+	var builder strings.Builder
+	for _, block := range blocks {
+		if block.Type != "text" {
+			continue
+		}
+		builder.WriteString(block.Text)
+	}
+	return builder.String()
+}
+
+func openAIArgumentsJSON(arguments string) json.RawMessage {
+	trimmed := strings.TrimSpace(arguments)
+	if trimmed == "" {
+		return json.RawMessage(`{}`)
+	}
+	raw := json.RawMessage(trimmed)
+	if json.Valid(raw) {
+		return cloneRawMessage(raw)
+	}
+	encoded, err := json.Marshal(trimmed)
+	if err != nil {
+		return json.RawMessage(`""`)
+	}
+	return encoded
+}
+
+func rawJSONToString(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return "{}"
+	}
+	return string(trimmed)
+}
+
+func stringPtr(value string) *string {
+	v := value
+	return &v
 }
 
 func parseOpenAIAPIError(resp *http.Response) error {

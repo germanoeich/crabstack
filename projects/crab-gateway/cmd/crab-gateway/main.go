@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +23,8 @@ import (
 	"crabstack.local/projects/crab-gateway/internal/session"
 	"crabstack.local/projects/crab-gateway/internal/subscribers"
 	logging "crabstack.local/projects/crab-gateway/internal/subscribers/logging"
+	"crabstack.local/projects/crab-gateway/internal/subscribers/webhook"
+	"crabstack.local/projects/crab-gateway/internal/toolclient"
 	sdkconfig "crabstack.local/projects/crab-sdk/config"
 )
 
@@ -34,6 +39,10 @@ func main() {
 	}
 
 	subs := []subscribers.Subscriber{logging.New(logger)}
+	for idx, webhookURL := range webhookSubscriberURLsFromEnv() {
+		name := webhookSubscriberName(idx, webhookURL)
+		subs = append(subs, webhook.New(name, webhookURL, logger))
+	}
 	dispatcher := dispatch.New(logger, subs)
 	store, err := session.NewGormStore(cfg.DBDriver, cfg.DBDSN)
 	if err != nil {
@@ -92,7 +101,22 @@ func main() {
 		pairing.WithAllowInsecureLoopback(cfg.PairAllowInsecureLoopback),
 	)
 
-	service := gateway.NewService(logger, dispatcher, store, modelRegistry)
+	toolHosts, err := toolHostConfigsFromEnv()
+	if err != nil {
+		logger.Fatalf("invalid CRAB_GATEWAY_TOOL_HOST_URLS: %v", err)
+	}
+
+	var tc *toolclient.Client
+	if len(toolHosts) > 0 {
+		tc = toolclient.New(logger, toolHosts)
+		discoverCtx, discoverCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer discoverCancel()
+		if err := tc.Discover(discoverCtx); err != nil {
+			logger.Printf("tool discovery warning: %v", err)
+		}
+	}
+
+	service := gateway.NewService(logger, dispatcher, store, modelRegistry, tc)
 	publicSrv := httpapi.NewServer(logger, cfg.HTTPAddr, service, nil, false)
 	adminSrv := httpapi.NewServer(logger, "unix://"+cfg.AdminSocketPath, service, pairingService, true)
 
@@ -141,4 +165,67 @@ func main() {
 	if err := adminSrv.Shutdown(ctx); err != nil {
 		logger.Printf("admin server shutdown error: %v", err)
 	}
+}
+
+func webhookSubscriberURLsFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("CRAB_GATEWAY_WEBHOOK_URLS"))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	urls := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			urls = append(urls, value)
+		}
+	}
+	return urls
+}
+
+func webhookSubscriberName(index int, webhookURL string) string {
+	parsed, err := url.Parse(webhookURL)
+	if err == nil {
+		host := strings.TrimSpace(parsed.Host)
+		if host != "" {
+			return host
+		}
+	}
+	return fmt.Sprintf("webhook-%d", index+1)
+}
+
+func toolHostConfigsFromEnv() ([]toolclient.HostConfig, error) {
+	raw := strings.TrimSpace(os.Getenv("CRAB_GATEWAY_TOOL_HOST_URLS"))
+	if raw == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	hosts := make([]toolclient.HostConfig, 0, len(parts))
+	for _, part := range parts {
+		entry := strings.TrimSpace(part)
+		if entry == "" {
+			continue
+		}
+
+		name, rawURL, ok := strings.Cut(entry, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid entry %q (expected name=url)", entry)
+		}
+		name = strings.TrimSpace(name)
+		rawURL = strings.TrimSpace(rawURL)
+		if name == "" || rawURL == "" {
+			return nil, fmt.Errorf("invalid entry %q (name and url are required)", entry)
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil || strings.TrimSpace(parsed.Scheme) == "" || strings.TrimSpace(parsed.Host) == "" {
+			return nil, fmt.Errorf("invalid url %q for host %q", rawURL, name)
+		}
+
+		hosts = append(hosts, toolclient.HostConfig{
+			Name:    name,
+			BaseURL: rawURL,
+		})
+	}
+	return hosts, nil
 }

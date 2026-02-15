@@ -12,6 +12,7 @@ import (
 	"crabstack.local/projects/crab-gateway/internal/ids"
 	"crabstack.local/projects/crab-gateway/internal/model"
 	"crabstack.local/projects/crab-gateway/internal/session"
+	"crabstack.local/projects/crab-gateway/internal/toolclient"
 	"crabstack.local/projects/crab-sdk/types"
 )
 
@@ -21,6 +22,7 @@ const (
 	defaultMaxTokens    = 4096
 	systemPrompt        = "You are a helpful assistant."
 	historyTurnLimit    = 50
+	maxToolRounds       = 10
 )
 
 type Service struct {
@@ -29,9 +31,10 @@ type Service struct {
 	scheduler    *session.Scheduler
 	sessionStore session.Store
 	models       *model.Registry
+	toolClient   *toolclient.Client
 }
 
-func NewService(logger *log.Logger, dispatcher *dispatch.Dispatcher, sessionStore session.Store, models *model.Registry) *Service {
+func NewService(logger *log.Logger, dispatcher *dispatch.Dispatcher, sessionStore session.Store, models *model.Registry, toolClient *toolclient.Client) *Service {
 	if models == nil {
 		models = model.NewRegistry()
 	}
@@ -40,6 +43,7 @@ func NewService(logger *log.Logger, dispatcher *dispatch.Dispatcher, sessionStor
 		dispatcher:   dispatcher,
 		sessionStore: sessionStore,
 		models:       models,
+		toolClient:   toolClient,
 	}
 	svc.scheduler = session.NewScheduler(logger, 256, svc.processEvent)
 	return svc
@@ -140,14 +144,109 @@ func (s *Service) handleChannelMessage(ctx context.Context, inbound types.EventE
 		return nil, err
 	}
 
-	completion, err := provider.Complete(ctx, model.CompletionRequest{
-		Model:        defaultModelName,
-		Messages:     history,
-		MaxTokens:    defaultMaxTokens,
-		SystemPrompt: systemPrompt,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("complete with provider %q: %w", providerName, err)
+	messages := make([]model.Message, len(history))
+	copy(messages, history)
+
+	var tools []model.ToolDefinition
+	if s.toolClient != nil {
+		tools = s.toolClient.AvailableTools()
+	}
+
+	var completion model.CompletionResponse
+	var totalUsage model.Usage
+	toolRounds := 0
+	for {
+		completion, err = provider.Complete(ctx, model.CompletionRequest{
+			Model:        defaultModelName,
+			Messages:     messages,
+			Tools:        tools,
+			MaxTokens:    defaultMaxTokens,
+			SystemPrompt: systemPrompt,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("complete with provider %q: %w", providerName, err)
+		}
+
+		totalUsage.InputTokens += completion.Usage.InputTokens
+		totalUsage.OutputTokens += completion.Usage.OutputTokens
+
+		if s.toolClient == nil || !isToolUseResponse(completion) {
+			break
+		}
+
+		if toolRounds >= maxToolRounds {
+			if strings.TrimSpace(completion.Content) != "" {
+				break
+			}
+			return nil, fmt.Errorf("provider %q exceeded max tool rounds (%d)", providerName, maxToolRounds)
+		}
+
+		toolUseBlocks := extractToolUseBlocks(completion.Blocks)
+		if len(toolUseBlocks) == 0 {
+			break
+		}
+		messages = append(messages, model.Message{
+			Role:    model.RoleAssistant,
+			Content: completion.Content,
+			Blocks:  completion.Blocks,
+		})
+
+		toolResultBlocks := make([]model.ContentBlock, 0, len(toolUseBlocks))
+		for _, toolUse := range toolUseBlocks {
+			args, argsErr := toolCallArgs(toolUse.Input)
+			if argsErr != nil {
+				toolResultBlocks = append(toolResultBlocks, model.ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: toolUse.ID,
+					Content:   fmt.Sprintf("invalid tool input: %v", argsErr),
+					IsError:   true,
+				})
+				continue
+			}
+
+			toolReq := types.ToolCallRequest{
+				Version:  types.VersionV1,
+				CallID:   ids.New(),
+				ToolName: toolUse.Name,
+				TenantID: inbound.TenantID,
+				Args:     args,
+				Context: types.ToolCallContext{
+					AgentID:       inbound.Routing.AgentID,
+					SessionID:     inbound.Routing.SessionID,
+					Platform:      inbound.Source.Platform,
+					ChannelID:     inbound.Source.ChannelID,
+					ActorID:       inbound.Source.ActorID,
+					IsolationKey:  inbound.Routing.IsolationKey,
+					TraceID:       inbound.TraceID,
+					RequestOrigin: types.RequestOriginAgentTurn,
+				},
+			}
+
+			s.logger.Printf("tool call start tool_name=%s tool_use_id=%s call_id=%s", toolUse.Name, toolUse.ID, toolReq.CallID)
+			toolResp, callErr := s.toolClient.Call(ctx, toolReq)
+			resultContent, isError := toolResultContent(toolResp, callErr)
+			if callErr != nil {
+				s.logger.Printf("tool call result tool_name=%s tool_use_id=%s call_id=%s err=%v", toolUse.Name, toolUse.ID, toolReq.CallID, callErr)
+			} else {
+				s.logger.Printf("tool call result tool_name=%s tool_use_id=%s call_id=%s status=%s", toolUse.Name, toolUse.ID, toolReq.CallID, toolResp.Status)
+			}
+
+			toolResultBlocks = append(toolResultBlocks, model.ContentBlock{
+				Type:      "tool_result",
+				ToolUseID: toolUse.ID,
+				Content:   resultContent,
+				IsError:   isError,
+			})
+		}
+
+		if len(toolResultBlocks) == 0 {
+			break
+		}
+		messages = append(messages, model.Message{
+			Role:   model.RoleUser,
+			Blocks: toolResultBlocks,
+		})
+		toolRounds++
 	}
 
 	responseText := strings.TrimSpace(completion.Content)
@@ -171,8 +270,8 @@ func (s *Service) handleChannelMessage(ctx context.Context, inbound types.EventE
 		},
 	}
 	response.Usage = &types.Usage{
-		InputTokens:  completion.Usage.InputTokens,
-		OutputTokens: completion.Usage.OutputTokens,
+		InputTokens:  totalUsage.InputTokens,
+		OutputTokens: totalUsage.OutputTokens,
 		Model:        completion.Model,
 		Provider:     providerName,
 	}
@@ -301,6 +400,68 @@ func assistantText(payload types.AgentResponseCreatedPayload) string {
 		parts = append(parts, text)
 	}
 	return strings.Join(parts, "\n")
+}
+
+func isToolUseResponse(resp model.CompletionResponse) bool {
+	stopReason := strings.ToLower(strings.TrimSpace(resp.StopReason))
+	return stopReason == "tool_use" || stopReason == "tool_calls"
+}
+
+func extractToolUseBlocks(blocks []model.ContentBlock) []model.ContentBlock {
+	toolUses := make([]model.ContentBlock, 0, len(blocks))
+	for _, block := range blocks {
+		if block.Type != "tool_use" {
+			continue
+		}
+		toolUses = append(toolUses, block)
+	}
+	return toolUses
+}
+
+func toolCallArgs(input json.RawMessage) (map[string]any, error) {
+	if strings.TrimSpace(string(input)) == "" {
+		return map[string]any{}, nil
+	}
+	var args map[string]any
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, err
+	}
+	if args == nil {
+		return map[string]any{}, nil
+	}
+	return args, nil
+}
+
+func toolResultContent(resp types.ToolCallResponse, callErr error) (string, bool) {
+	if callErr != nil {
+		return callErr.Error(), true
+	}
+
+	if resp.Status == types.ToolCallStatusOK {
+		if resp.Result == nil {
+			return "{}", false
+		}
+		data, err := json.Marshal(resp.Result)
+		if err != nil {
+			return fmt.Sprintf("tool call %s returned unmarshalable result", resp.ToolName), true
+		}
+		return string(data), false
+	}
+
+	payload := map[string]any{
+		"status": resp.Status,
+	}
+	if resp.Error != nil {
+		payload["error"] = resp.Error
+	}
+	if resp.Result != nil {
+		payload["result"] = resp.Result
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Sprintf("tool call %s failed with status %s", resp.ToolName, resp.Status), true
+	}
+	return string(data), true
 }
 
 func (s *Service) lifecycleEvent(inbound types.EventEnvelope, turnID string, eventType types.EventType, payload map[string]any) types.EventEnvelope {

@@ -2,6 +2,8 @@ go 1.22
 
 use (
 	./integration
+	./projects/crab-cron
+	./projects/crab-discord
 	./projects/crab-gateway
 	./projects/crab-cli
 	./projects/crab-sdk
